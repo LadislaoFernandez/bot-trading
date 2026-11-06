@@ -157,7 +157,8 @@ QLineEdit, QDoubleSpinBox {{ background: {PANEL2}; border: 1px solid {LINE}; bor
     font-size: 13px; selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT}; }}
 QDoubleSpinBox:disabled {{ color: {MUTED}; }}
 QDoubleSpinBox {{ padding: 6px 8px; }}
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0; border: none; }}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0; border: none; image: none; }}
+QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow {{ width: 0; height: 0; image: none; }}
 QPushButton[rol="paso"] {{ min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; padding: 0;
     border-radius: 8px; border: 1px solid {LINE}; background: {PANEL2}; color: {MUTED}; font-size: 17px; font-weight: 600; }}
 QPushButton[rol="paso"]:hover {{ border: 1px solid {ACCENT}; color: {ACCENT}; }}
@@ -210,7 +211,7 @@ GUIA = [
      "y Operaciones para entender qué hace. Cerrar la ventana no detiene el bot: queda en el ícono junto a la hora.", []),
     ("Entrá a Trading de prueba en Binance",
      "En binance.com, iniciá sesión, tocá el ícono de tu perfil (arriba a la derecha) y elegí Trading de prueba (en "
-     "inglés, Demo trading). Entrá a Futuros USDⓈ-M y fijate que tengas saldo de prueba en USDT.",
+     "inglés, Demo trading). Entrá a Futuros USD-M y fijate que tengas saldo de prueba en USDT.",
      [("Abrir Futuros en Trading de prueba", URL_DEMO_FUTUROS)]),
     ("Creá la clave de API de prueba",
      "Acá abajo, en Cuenta demo de Binance, tocá Generar clave Ed25519 (la clave pública se copia sola). En la Gestión "
@@ -299,9 +300,9 @@ def scroll(widget):
 
 def con_pasos(sp):
     """Campo numérico con botones − y + propios (más claros que las flechitas de Windows)."""
-    from PySide6.QtWidgets import QAbstractSpinBox
-    sp.setButtonSymbols(QAbstractSpinBox.NoButtons)
-    sp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    # Las flechas propias de Qt se ocultan por estilo (ancho 0). Con setButtonSymbols(NoButtons) y una hoja de estilos,
+    # Qt deja el campo de texto con 1 px de ancho y el número no se ve.
+    sp.setAlignment(Qt.AlignCenter)
     w = QWidget(); h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(4)
     for txt, f in (("−", sp.stepDown), ("+", sp.stepUp)):
         b = QPushButton(txt); b.setProperty("rol", "paso"); b.setCursor(Qt.PointingHandCursor)
@@ -329,6 +330,28 @@ def qss_flechas():
         ruta = os.path.join(carpeta, f"{nombre}_{TEMA}.png"); pm.save(ruta)
         out += ("QComboBox::down-arrow" + (":hover" if "hover" in nombre else "") +
                 f' {{ image: url("{ruta.replace(os.sep, "/")}"); width: 14px; height: 14px; }}\n')
+    # tilde de las casillas
+    pm = QPixmap(32, 32); pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(ON_ACCENT), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    path = QPainterPath(QPointF(8, 16.5)); path.lineTo(13.5, 22); path.lineTo(24, 10); p.drawPath(path); p.end()
+    ruta = os.path.join(carpeta, f"tilde_{TEMA}.png"); pm.save(ruta)
+    out += f'QCheckBox::indicator:checked {{ image: url("{ruta.replace(os.sep, "/")}"); }}\n'
+    # switch con perilla (encendido, apagado y deshabilitado)
+    for nombre, fondo, perilla, x in (("sw_on", ACCENT, "#FFFFFF", 22), ("sw_off", LINE, MUTED, 4),
+                                      ("sw_on_dis", rgba(ACCENT, 0.45), "#FFFFFF", 22), ("sw_off_dis", LINE, LINE, 4)):
+        pm = QPixmap(76, 40); pm.fill(Qt.transparent)
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing); p.setPen(Qt.NoPen)
+        col = QColor(fondo) if fondo.startswith("#") else QColor(ACCENT)
+        if "dis" in nombre and "on" in nombre:
+            col.setAlpha(115)
+        p.setBrush(col); p.drawRoundedRect(QRectF(0, 0, 76, 40), 20, 20)
+        p.setBrush(QColor(perilla)); p.drawEllipse(QRectF(x * 2 - 2 if x > 4 else 6, 6, 28, 28)); p.end()
+        ruta = os.path.join(carpeta, f"{nombre}_{TEMA}.png"); pm.save(ruta)
+        estado = {"sw_on": ":checked", "sw_off": ":unchecked", "sw_on_dis": ":checked:disabled",
+                  "sw_off_dis": ":unchecked:disabled"}[nombre]
+        out += (f'QCheckBox[rol="switch"]::indicator{estado} {{ image: url("{ruta.replace(os.sep, "/")}"); '
+                f'background: transparent; width: 38px; height: 20px; }}\n')
     return out
 
 
@@ -1418,7 +1441,7 @@ class Ventana(QMainWindow):
         # claves
         self.ui_claves = {}
         for m, titulo in (("demo", t("Cuenta demo de Binance")), ("real", t("Cuenta real de Binance"))):
-            ayuda = (t("Claves creadas en la demo de Binance (Trading simulado), en Gestión de API.") if m == "demo" else
+            ayuda = (t("Claves creadas en Trading de prueba de Binance, en Gestión de API.") if m == "demo" else
                      t("Creá una clave en binance.com, en Gestión de API, con permiso de futuros y SIN permiso de retiros. "
                        "Si podés, restringila a la IP de tu conexión."))
             pv = self._seccion(iv, titulo, ayuda)
@@ -1616,8 +1639,12 @@ class Ventana(QMainWindow):
                 self.lbl_act.setStyleSheet(f"font-size:13px; color:{GAIN}")
                 self.box_act.setVisible(False); self.btn_instalar_act.setVisible(False)
         elif tipo == "error_busqueda":
-            txt = (t("Todavía no hay un repositorio de actualizaciones configurado.") if dato == "repo-no-configurado"
-                   else t("No se pudo buscar actualizaciones:") + " " + dato[:200])
+            if dato == "repo-no-configurado":
+                txt = t("Todavía no hay un repositorio de actualizaciones configurado.")
+            elif "404" in dato:
+                txt = t("Todavía no hay versiones publicadas. Tenés la {v}.", v=K.VERSION)
+            else:
+                txt = t("No se pudo buscar actualizaciones (sin conexión o GitHub no responde). Se vuelve a intentar más tarde.")
             self.lbl_act.setText(txt); self.lbl_act.setStyleSheet(f"font-size:13px; color:{AMBER if self._act_manual else MUTED}")
         elif tipo == "instalada":
             self.lbl_act.setText(t("Versión {v} instalada. Reiniciando…", v=dato))

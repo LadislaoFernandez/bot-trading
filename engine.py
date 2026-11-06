@@ -136,7 +136,8 @@ def prepare(rows, bar_ms, htf_ms):
 
     return dict(n=n, T=T, O=O, H=H, L=L, C=C, ADX=ADX, ATR=ATR, V=V, sqz=sqz, trend=trend,
                 EMA20=_ema(C, 20), EMA50=_ema(C, 50), EMA200=_ema(C, 200), DH48=DH48, DL48=DL48,
-                RSI14=RSI14, RSI2=RSI2, SMA20=SMA20, SD20=SD20, SMA5=SMA5, ST=ST)
+                RSI14=RSI14, RSI2=RSI2, SMA20=SMA20, SD20=SD20, SMA5=SMA5, ST=ST,
+                BBU=[m + 2 * d for m, d in zip(SMA20, SD20)], BBL=[m - 2 * d for m, d in zip(SMA20, SD20)])
 
 
 # ---------------------------------------------------------------- estrategias
@@ -234,6 +235,9 @@ def exit_ST(D, i, side):
     return D["ST"][i] < 0 if side == "long" else D["ST"][i] > 0
 
 
+NOMBRES = {"BREAKOUT": "Breakout", "TL": "Resorte de tendencia", "MR": "Reversión a la media", "RSI2": "RSI(2)",
+           "CRUCE": "Cruce de medias", "SUPERTREND": "Supertrend"}  # se completa con el catálogo (catalogo.py)
+
 STRATS = {
     "TL": dict(entry=entry_TL, exit=exit_TL, stop_atr=2.0, trail_atr=3.0, max_bars=0),
     "BREAKOUT": dict(entry=entry_BREAKOUT, exit=lambda D, i, s: False, stop_atr=2.0, trail_atr=3.0, max_bars=0),
@@ -297,6 +301,9 @@ def explain(D, i, strat):
                     (t("Precio sobre la EMA 200"), C > D["EMA200"][i])]
         return [(t("EMA 20 cruza por debajo de la EMA 50 en esta vela"), f < s_ and f1 >= s1),
                 (t("Precio bajo la EMA 200"), C < D["EMA200"][i])]
+    if "datos" in STRATS.get(strat, {}):
+        import reglas
+        return reglas.explicar(STRATS[strat]["datos"], D, i)
     if strat == "SUPERTREND":
         return [(t("Supertrend cambia de dirección en esta vela"), D["ST"][i] != D["ST"][i - 1]),
                 (t("Dirección actual: {d}", d=t("alcista") if D["ST"][i] > 0 else t("bajista")), True)]
@@ -371,3 +378,11 @@ class Sleeve:
     def mark(self, price):
         p = self.pos
         return self.equity + ((1 if p["side"] == "long" else -1) * (price - p["e"]) * p["q"] if p else 0.0)
+
+
+# estrategias definidas como datos (carpetas estrategias/ y mis_estrategias/)
+try:
+    import catalogo as _catalogo
+    _catalogo.cargar(STRATS, NOMBRES)
+except Exception:  # un catálogo roto nunca debe frenar al bot
+    pass

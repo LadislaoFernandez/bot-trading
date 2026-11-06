@@ -11,10 +11,14 @@ from datetime import datetime
 import config as K
 from i18n import num, t
 
-NOMBRES = {"BREAKOUT": "Breakout", "TL": "Resorte de tendencia", "MR": "Reversión a la media", "RSI2": "RSI(2)",
-           "CRUCE": "Cruce de medias", "SUPERTREND": "Supertrend"}
+NOMBRES = __import__("engine").NOMBRES  # un solo registro de estrategias (engine + catálogo)
 MOTIVOS = {"stop": "Stop", "salida_señal": "Señal de salida", "reversa": "Cambio de dirección",
            "fin_backtest": "Fin de período", "cierre_manual": "Cierre manual", "sin_stop": "Sin stop en Binance"}
+
+
+def _nombre(s):
+    import mercado
+    return mercado.nombre_estrategia(s)
 
 
 def fmt(v, d=2, signo=False):
@@ -100,7 +104,7 @@ def operaciones(carpeta="."):
     for r in leer_csv(K.TRADES_FILE, carpeta):
         try:
             a, s = r["posicion"].split("_", 1)
-            out.append(dict(activo=a, estrategia=t(NOMBRES.get(s, s)), clave=s, lado=r["side"],
+            out.append(dict(activo=a, estrategia=_nombre(s), clave=s, lado=r["side"],
                             entrada_t=r["entrada_t"], salida_t=r["salida_t"],
                             entrada=float(r["entrada"]), salida=float(r["salida"]),
                             cantidad=float(r["cantidad"]), pnl=float(r["pnl"]),
@@ -147,7 +151,7 @@ def snapshot(carpeta=".", precios=None, status=None):
             if not ss.get("pos") and ss["equity"] <= 1e-9 and (not usa or not asig_ef.get(f"{a}_{s}")):
                 continue
             p, px = ss.get("pos"), precios.get(a, {}).get("precio")
-            fila = dict(activo=a, estrategia=t(NOMBRES[s]), clave=s, activa=usa,
+            fila = dict(activo=a, estrategia=_nombre(s), clave=s, activa=usa,
                         asignado=asig_ef.get(f"{a}_{s}", 0.0) if usa else 0.0,
                         capital=ss["equity"], resultado=0.0,
                         pendiente=ss.get("pending"), lado=None, entrada=None, stop=None, precio=px, tamano=None,

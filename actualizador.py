@@ -26,6 +26,16 @@ PROTEGIDOS = {"ajustes.json", "historial_estrategias.json"}
 EXT_PROTEGIDAS = (".json", ".jsonl", ".csv", ".log", ".dat", ".txt")
 
 
+def _es_codigo(x):
+    """Lo que una actualización puede reemplazar: código, scripts, requirements y el catálogo de estrategias."""
+    x = x.replace("\\", "/")
+    if x.startswith("estrategias/") and x.endswith(".json") and x.count("/") == 1:
+        return True
+    if "/" in x or os.path.basename(x) in PROTEGIDOS:
+        return False  # ni datos del usuario ni carpetas propias (mis_estrategias, candidatas, respaldos...)
+    return x == "requirements.txt" or not x.lower().endswith(EXT_PROTEGIDAS)
+
+
 def version_tupla(v):
     v = (v or "").strip().lstrip("vV")
     out = []
@@ -109,7 +119,7 @@ def instalar(info, progreso=None, carpeta="."):
         os.makedirs(resp, exist_ok=True)
         cambiados = []
         for x in nombres:
-            if os.path.basename(x) in PROTEGIDOS or x.lower().endswith(EXT_PROTEGIDAS) and x != "requirements.txt":
+            if not _es_codigo(x):
                 continue
             src, dst = os.path.join(dest, x), os.path.join(carpeta, x)
             if os.path.exists(dst):

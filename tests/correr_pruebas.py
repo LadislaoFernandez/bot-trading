@@ -136,6 +136,30 @@ def prueba_binance(semilla, auto=False):
         time.time, time.sleep = t_real, s_real
 
 
+def prueba_reglas():
+    import engine as E
+    import reglas as R
+    from equivalentes import EQUIVALENTES
+    for esc in (1, 1 / 300):
+        rr = [[r[0], r[1] * esc, r[2] * esc, r[3] * esc, r[4] * esc] for r in ROWS]
+        D = E.prepare(rr, 3600000, 4 * 3600000)
+        for k, d in EQUIVALENTES.items():
+            assert not R.validar(d), (k, R.validar(d))
+            E.STRATS[d["id"]] = R.compilar(d)
+            res = []
+            for s in (k, d["id"]):
+                sl = E.Sleeve(s, 0.03, 10, 0.0002, 0, 100.0); n = 0
+                for i in range(1, D["n"]):
+                    sl.on_bar(D, i); n += len(sl.closed); sl.closed = []
+                res.append((round(sl.equity, 9), n))
+            assert res[0] == res[1], (k, res)
+            del E.STRATS[d["id"]]
+            R.explicar(d, D, D["n"] - 1); R.describir(d)
+    assert R.validar({"id": "x", "entrada": [{"a": "NOEXISTE", "op": ">", "b": 1}]})
+    assert R.validar({"id": "../x", "entrada": [{"a": "C", "op": ">", "b": "EMA200"}]})
+    print("5) estrategias como datos: las 6 originales escritas como datos dan exactamente lo mismo que las de código")
+
+
 def prueba_actualizador():
     import actualizador as AC
     import config as K
@@ -148,10 +172,12 @@ def prueba_actualizador():
     with zipfile.ZipFile(zp, "w") as z:
         z.writestr("app.py", "nuevo"); z.writestr("config.py", "nuevo"); z.writestr("requirements.txt", "")
         z.writestr("auto.py", "nuevo"); z.writestr("ajustes.json", "{}")  # este no debe pisarse
+        z.writestr("estrategias/NUEVA.json", "{}"); z.writestr("mis_estrategias/X.json", "{}")  # catálogo sí, propias no
     info = dict(version="99.0", url="file://" + zp.replace("\\", "/"), tamano=os.path.getsize(zp))
     hechos = AC.instalar(info, carpeta=app)
     leer = lambda f: open(os.path.join(app, f)).read()
-    assert leer("app.py") == "nuevo" and leer("auto.py") == "nuevo"
+    assert leer("app.py") == "nuevo" and leer("auto.py") == "nuevo" and leer("estrategias/NUEVA.json") == "{}"
+    assert not os.path.exists(os.path.join(app, "mis_estrategias"))
     assert leer("ajustes.json") == '{"modo":"demo"}' and leer("claves_demo.dat") == "x"
     assert open(os.path.join(app, "respaldos", K.VERSION, "app.py")).read() == "viejo"
     assert AC.version_tupla("v1.10") > AC.version_tupla("1.9") > AC.version_tupla("1.4.1") > AC.version_tupla("1.4")
@@ -165,4 +191,5 @@ if __name__ == "__main__":
     prueba_binance(4)
     prueba_binance(11, auto=True)
     prueba_actualizador()
+    prueba_reglas()
     print(f"TODO OK en {time.time() - t0:.0f} s")

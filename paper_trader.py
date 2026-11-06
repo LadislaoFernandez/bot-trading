@@ -60,12 +60,12 @@ def append_csv(path, rows, fields):
         w.writerows(rows)
 
 
-NOMBRES = {"BREAKOUT": "Breakout", "TL": "Resorte de tendencia", "MR": "Reversión a la media", "RSI2": "RSI(2)",
-           "CRUCE": "Cruce de medias", "SUPERTREND": "Supertrend"}
+NOMBRES = __import__("engine").NOMBRES  # un solo registro de estrategias (engine + catálogo)
 
 
 def nombre(s):
-    return t(NOMBRES.get(s, s))
+    import mercado
+    return mercado.nombre_estrategia(s)
 
 
 def lado(x):

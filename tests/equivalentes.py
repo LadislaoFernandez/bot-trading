@@ -1,0 +1,22 @@
+"""Las 6 estrategias originales escritas como datos: tienen que dar exactamente lo mismo que las de código."""
+EQUIVALENTES = {
+    "BREAKOUT": {"id": "BREAKOUT_D", "direccion": "ambas",
+                 "entrada": [{"a": "C", "op": ">", "b": "DH48", "b_desfase": 1}, {"a": "EMA50", "op": ">", "b": "EMA200"}],
+                 "salida": [], "stop_atr": 2, "trail_atr": 3, "max_velas": 0},
+    "TL": {"id": "TL_D", "direccion": "largo", "min_velas": 55,
+           "entrada": [{"a": "V", "op": "gira_arriba"}, {"a": "ADX", "op": "cae", "n": 3, "desfase": 1},
+                       {"op": "squeeze", "n": 6}, {"a": "trend", "op": ">", "b": 0}],
+           "salida": [{"a": "V", "op": "cruza_abajo", "b": 0}], "stop_atr": 2, "trail_atr": 3, "max_velas": 0},
+    "MR": {"id": "MR_D", "direccion": "ambas",
+           "entrada": [{"a": "ADX", "op": "<", "b": 20}, {"a": "C", "op": "<", "b": "BBL"}, {"a": "RSI14", "op": "<", "b": 30}],
+           "salida": [{"a": "C", "op": ">=", "b": "SMA20"}], "stop_atr": 2, "trail_atr": 0, "max_velas": 24},
+    "RSI2": {"id": "RSI2_D", "direccion": "ambas",
+             "entrada": [{"a": "C", "op": ">", "b": "EMA200"}, {"a": "RSI2", "op": "<", "b": 10}],
+             "salida": [{"a": "C", "op": ">", "b": "SMA5"}], "stop_atr": 3, "trail_atr": 0, "max_velas": 20},
+    "CRUCE": {"id": "CRUCE_D", "direccion": "ambas",
+              "entrada": [{"a": "EMA20", "op": "cruza_arriba", "b": "EMA50"}, {"a": "C", "op": ">", "b": "EMA200"}],
+              "salida": [{"a": "EMA20", "op": "<", "b": "EMA50"}], "stop_atr": 2, "trail_atr": 3, "max_velas": 0},
+    "SUPERTREND": {"id": "ST_D", "direccion": "ambas",
+                   "entrada": [{"a": "ST", "op": "cruza_arriba", "b": 0}],
+                   "salida": [{"a": "ST", "op": "<", "b": 0}], "stop_atr": 3, "trail_atr": 3, "max_velas": 0},
+}

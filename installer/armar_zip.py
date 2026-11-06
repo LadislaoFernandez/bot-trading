@@ -20,6 +20,7 @@ def archivos():
     out = []
     for patron in ("*.py", "*.bat", "*.vbs", "*.ico", "requirements.txt"):
         out += [os.path.basename(p) for p in glob.glob(os.path.join(RAIZ, patron))]
+    out += ["estrategias/" + os.path.basename(p) for p in glob.glob(os.path.join(RAIZ, "estrategias", "*.json"))]
     return sorted(set(out) - NO_VAN)
 
 
@@ -32,6 +33,7 @@ def main():
     zp = os.path.join(dist, "actualizacion.zip")
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
         for f in lista:
+            os.makedirs(os.path.dirname(os.path.join(app, f)), exist_ok=True)
             shutil.copy2(os.path.join(RAIZ, f), os.path.join(app, f))
             z.write(os.path.join(RAIZ, f), f)
     # notas de la versión para la publicación

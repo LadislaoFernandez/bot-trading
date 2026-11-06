@@ -35,9 +35,16 @@ ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de c
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.4.3"
+VERSION = "1.5"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.5", "06/11/2026", [
+        "Revalidación semanal: cada estrategia se vuelve a probar con los datos de los últimos 90 días, y la app avisa "
+        "cuando una empieza a empeorar o se recupera.",
+        "El modo automático deja de usar las estrategias que vienen empeorando hasta que se recuperen.",
+        "Estrategias definidas como datos: la app puede recibir estrategias nuevas sin cambiar su código.",
+        "Avisos en la sección Estrategias y notificación junto a la hora.",
+    ]),
     ("1.4.3", "06/11/2026", [
         "Opción para instalar las actualizaciones automáticamente, sin preguntar.",
         "La app busca actualizaciones cada 1 hora.",

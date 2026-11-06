@@ -4,7 +4,8 @@ En cada revisión, para cada moneda:
   1. Lee el tipo de mercado (tendencia alcista, bajista o lateral) en las últimas 3 velas cerradas de 1 hora.
      Solo cambia de tipo si las 3 coinciden, para no saltar de estrategia por un movimiento de una sola vela.
   2. Elige hasta 2 estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
-     operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias).
+     operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias), y que no
+     vengan empeorando: si en los últimos 90 días perdió más de lo que ganó, no la usa hasta que se recupere.
   3. Reparte en partes iguales entre ellas el dinero de esa moneda: el monto que elegiste más lo ganado (o menos lo
      perdido) por las operaciones de esa moneda desde que lo elegiste, así las ganancias se reinvierten.
 Si ninguna estrategia conviene, esa moneda no abre operaciones nuevas y su dinero queda sin asignar.
@@ -50,7 +51,7 @@ def plan(st, Ds, historial, montos, log=None):
         for s in sel:
             asig[f"{a}_{s}"] = int(m / len(sel) * 100) / 100
         if au["seleccion"].get(a) != sel or au["regimen"].get(a) != reg:
-            nombres = ", ".join(t(M.PT_NOMBRES[s]) for s in sel) if sel else t("ninguna (no abre operaciones nuevas)")
+            nombres = ", ".join(M.nombre_estrategia(s) for s in sel) if sel else t("ninguna (no abre operaciones nuevas)")
             cambios.append(t("{a} ({r}): {e}", a=a, r=t(reg).lower() if reg else "—", e=nombres))
         au["regimen"][a], au["seleccion"][a] = reg, sel
     if cambios and log:

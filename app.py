@@ -473,9 +473,32 @@ class MarketWorker(threading.Thread):
         self.hist_estado, self.hist_prog = ("listo" if self.historial else "pendiente"), (0.0, "")
         self.recalcular, self.stop = threading.Event(), threading.Event()
 
+    def _avisar_cambios(self, anterior, nuevo):
+        """Revalidación semanal: avisa qué estrategias empezaron a empeorar o se recuperaron."""
+        import alertas
+        if not anterior or not any("estado" in d for d in anterior.get("estrategias", {}).values()):
+            anterior = None  # primer cálculo con esta versión: avisa solo las que hoy empeoran
+        for s, cambio in M.comparar(anterior, nuevo):
+            rec = nuevo["estrategias"][s].get("reciente", {})
+            nombre = M.nombre_estrategia(s)
+            sem = datetime.now().strftime("%Y-%W")
+            if cambio == "empeora":
+                alertas.agregar(f"empeora_{s}_{sem}", "empeora", t("{e} viene empeorando", e=nombre), t(
+                    "En los últimos {d} días perdió más de lo que ganó ({pf} en {n} operaciones), aunque en el historial "
+                    "completo funciona. El modo automático no la usa hasta que se recupere; si la tenés activada a mano, "
+                    "fijate si conviene desactivarla.", d=M.DIAS_RECIENTE, pf=num(rec.get("pf")), n=rec.get("ops")),
+                    {"estrategia": s})
+            else:
+                alertas.agregar(f"recupera_{s}_{sem}", "recupera", t("{e} se recuperó", e=nombre), t(
+                    "En los últimos {d} días volvió a ganar más de lo que pierde ({pf} en {n} operaciones).",
+                    d=M.DIAS_RECIENTE, pf=num(rec.get("pf")), n=rec.get("ops")), {"estrategia": s})
+
     def _necesita_historial(self):
         h = self.historial
-        return self.recalcular.is_set() or not h or time.time() - h.get("calculado", 0) > 7 * 86400
+        from engine import STRATS
+        faltan = h and any(s not in h.get("estrategias", {}) for s in STRATS)  # hay estrategias nuevas
+        viejo = h and any("estado" not in d for d in h.get("estrategias", {}).values())  # historial de antes de la 1.5
+        return self.recalcular.is_set() or not h or faltan or viejo or time.time() - h.get("calculado", 0) > 7 * 86400
 
     def run(self):
         import ccxt
@@ -500,7 +523,9 @@ class MarketWorker(threading.Thread):
                     desde = int(datetime(2021, 12, 1).timestamp() * 1000)
                     h = M.calcular_historial(lambda a: fetch_range(ex, K.SYMBOLS[a], K.TIMEFRAME, desde, int(time.time() * 1000)),
                                              lambda f, x: setattr(self, "hist_prog", (f, x)))
+                    anterior = self.historial
                     M.guardar(h); self.historial = h; self.hist_estado = "listo"
+                    self._avisar_cambios(anterior, h)
                 except Exception as e:
                     self.hist_estado = "error"; self.hist_prog = (0.0, f"{type(e).__name__}: {e}"[:120])
             self.stop.wait(5)
@@ -958,7 +983,7 @@ class Ventana(QMainWindow):
             card = panel(); hl = QHBoxLayout(card); hl.setContentsMargins(16, 12, 16, 12); hl.setSpacing(18)
             izq = QVBoxLayout(); izq.setSpacing(4)
             izq.addWidget(lbl(it["activo"], size=15, weight=600))
-            izq.addWidget(lbl(t(PT.NOMBRES.get(it.get("clave"), it["estrategia"])) if it.get("clave") else it["estrategia"],
+            izq.addWidget(lbl(M.nombre_estrategia(it["clave"]) if it.get("clave") in PT.NOMBRES else it["estrategia"],
                               rol="muted", size=12, wrap=True))
             txt, col = ACCIONES.get(it["accion"], (it["accion"], MUTED))
             c = lbl("", rol="chip"); chip(c, t(txt), col)
@@ -988,6 +1013,13 @@ class Ventana(QMainWindow):
             "al actual, y qué estrategias usa el bot y con cuánto dinero."))
         inner = QWidget(); inner.setObjectName("pagina"); iv = QVBoxLayout(inner)
         iv.setContentsMargins(0, 0, 10, 0); iv.setSpacing(12)
+        self.pan_avisos = QFrame(); self.pan_avisos.setObjectName("actualizacion")
+        pav_ = QVBoxLayout(self.pan_avisos); pav_.setContentsMargins(16, 12, 16, 12); pav_.setSpacing(8)
+        ha_ = QHBoxLayout(); ha_.addWidget(lbl(t("Avisos"), rol="titulo")); ha_.addStretch()
+        ha_.addWidget(boton(t("Marcar como leídos"), accion=self._leer_avisos)); pav_.addLayout(ha_)
+        self.box_avisos = QVBoxLayout(); self.box_avisos.setSpacing(8); pav_.addLayout(self.box_avisos)
+        self.pan_avisos.setVisible(False); iv.addWidget(self.pan_avisos)
+        self._avisos_firma, self._avisos_vistos = None, None
         h = QHBoxLayout(); h.addWidget(lbl(t("Mercado ahora"), rol="titulo")); h.addStretch()
         self.lbl_mkt_upd = lbl("", rol="muted", size=12); h.addWidget(self.lbl_mkt_upd); iv.addLayout(h)
         fila = QHBoxLayout(); fila.setSpacing(12); self.mkt_ui = {}
@@ -1050,18 +1082,29 @@ class Ventana(QMainWindow):
         self.estr_ui, self.montos, self.montos_w, self.filas_monto = {}, {}, {}, {}
         for k, nombre in PT.NOMBRES.items():
             p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(18, 14, 18, 14); pv.setSpacing(8)
-            top = QHBoxLayout(); top.setSpacing(10); top.addWidget(lbl(t(nombre), rol="titulo"))
+            top = QHBoxLayout(); top.setSpacing(10); top.addWidget(lbl(M.nombre_estrategia(k), rol="titulo"))
             rec = lbl("", rol="chip"); top.addWidget(rec); top.addStretch()
             sw = QCheckBox(t("Activa")); sw.setProperty("rol", "switch"); sw.setCursor(Qt.PointingHandCursor)
             sw.clicked.connect(lambda checked, k=k: self._cambiar_estrategia(k, checked)); top.addWidget(sw)
             pv.addLayout(top)
-            pv.addWidget(lbl(t(DESCRIPCIONES[k]), size=13, wrap=True))
+            if k in DESCRIPCIONES:
+                desc = t(DESCRIPCIONES[k])
+            else:
+                import catalogo
+                dd = catalogo.DEFINICIONES[k]
+                desc = catalogo.descripcion(dd, i18n.LANG)
+                origen = t("Agregada por vos desde el laboratorio.") if dd.get("_origen") == "mis_estrategias" else \
+                    t("Estrategia del catálogo de la app.")
+                desc += " " + origen
+            pv.addWidget(lbl(desc, size=13, wrap=True))
             porque = lbl("", size=13, wrap=True); pv.addWidget(porque)
             g = QGridLayout(); g.setHorizontalSpacing(28); g.setVerticalSpacing(2); celdas = {}
-            for c, r in enumerate(M.REGIMENES + ["Total"]):
-                g.addWidget(lbl(t("Todo el período") if r == "Total" else t(r), rol="muted", size=12), 0, c)
+            for c, r in enumerate(M.REGIMENES + ["Total", "Reciente"]):
+                tit = (t("Todo el período") if r == "Total" else t("Últimos {d} días", d=M.DIAS_RECIENTE)
+                       if r == "Reciente" else t(r))
+                g.addWidget(lbl(tit, rol="muted", size=12), 0, c)
                 x = lbl("—", size=13); g.addWidget(x, 1, c); celdas[r] = x
-            g.setColumnStretch(4, 1); pv.addLayout(g)
+            g.setColumnStretch(5, 1); pv.addLayout(g)
             mw = QWidget(); mh = QHBoxLayout(mw); mh.setContentsMargins(0, 0, 0, 0); mh.setSpacing(10)
             mh.addWidget(lbl(t("Monto por moneda"), rol="muted", size=12))
             for a in K.SYMBOLS:
@@ -1108,7 +1151,7 @@ class Ventana(QMainWindow):
                 rec.setStyleSheet(f"font-size:13px; color:{MUTED}")
             elif mejor:
                 rec.setText(t("Mejor para este mercado: {e}. Ganó {pf} veces lo que perdió, en {n} operaciones.",
-                              e=t(PT.NOMBRES[mejor["estrategia"]]), pf=num(mejor["pf"]), n=mejor["ops"]))
+                              e=M.nombre_estrategia(mejor["estrategia"]), pf=num(mejor["pf"]), n=mejor["ops"]))
                 rec.setStyleSheet(f"font-size:13px; font-weight:600; color:{GAIN}")
             else:
                 rec.setText(t("Ninguna estrategia tuvo una ventaja clara en este tipo de mercado. Conviene operar con "
@@ -1137,7 +1180,7 @@ class Ventana(QMainWindow):
                 partes = []
                 for a in K.SYMBOLS:
                     ss = sel.get(a, [])
-                    nom = ", ".join(t(PT.NOMBRES[x]) for x in ss) if ss else t("ninguna (no abre operaciones nuevas)")
+                    nom = ", ".join(M.nombre_estrategia(x) for x in ss) if ss else t("ninguna (no abre operaciones nuevas)")
                     partes.append(t("{a} ({r}): {e}", a=a, r=t(regs.get(a) or "—").lower(), e=nom))
                 self.lbl_auto.setText(t("Ahora usa:") + " " + "; ".join(partes) + ".")
             self.lbl_auto.setStyleSheet(f"font-size:13px; color:{ACCENT}")
@@ -1165,7 +1208,8 @@ class Ventana(QMainWindow):
             porque.setStyleSheet(f"font-size:13px; color:{col if nivel != 'sin_datos' else MUTED}")
             if hist and k in hist["estrategias"]:
                 for r, x in celdas.items():
-                    d = hist["estrategias"][k]["regimenes"].get(r, {})
+                    d = (hist["estrategias"][k].get("reciente", {}) if r == "Reciente"
+                         else hist["estrategias"][k]["regimenes"].get(r, {}))
                     if not d.get("ops"):
                         x.setText(t("Sin operaciones")); x.setStyleSheet(f"font-size:13px; color:{MUTED}"); continue
                     pf = d.get("pf")
@@ -1185,6 +1229,38 @@ class Ventana(QMainWindow):
               "y desde ahí reinvierte sus ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición "
               "abierta, el monto nuevo se aplica cuando la cierre."))
         self._llenar_montos()
+
+    # ---------- avisos (alertas.py)
+    def _llenar_avisos(self):
+        import alertas
+        sin_leer = alertas.listar(solo_sin_leer=True)
+        firma = tuple(a["id"] for a in sin_leer)
+        if self._avisos_vistos is None:
+            self._avisos_vistos = set(firma)  # al abrir la app no notifica lo que ya estaba
+        nuevos = [a for a in sin_leer if a["id"] not in self._avisos_vistos]
+        if nuevos and getattr(self, "tray", None) and PT.leer_ajustes().get("notificaciones", True):
+            self.tray.showMessage(nuevos[0]["titulo"], nuevos[0]["texto"][:240], QSystemTrayIcon.Information, 8000)
+        self._avisos_vistos.update(firma)
+        n = len(sin_leer)
+        self.nav_btns[3].setText(t("Estrategias") + (f"  ({n})" if n else ""))
+        if firma == self._avisos_firma:
+            return
+        self._avisos_firma = firma
+        self._vaciar(self.box_avisos)
+        colores = {"empeora": LOSS, "recupera": GAIN, "candidata": ACCENT}
+        for a in sin_leer[:8]:
+            w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(2)
+            v.addWidget(lbl(f"{datetime.fromtimestamp(a['hora']):%d/%m %H:%M}  ·  {a['titulo']}", size=13, weight=600,
+                            color=colores.get(a["tipo"], TEXT), wrap=True))
+            v.addWidget(lbl(a["texto"], rol="muted", size=12, wrap=True))
+            self.box_avisos.addWidget(w)
+        self.pan_avisos.setVisible(bool(sin_leer))
+
+    def _leer_avisos(self):
+        import alertas
+        alertas.marcar_leidas()
+        self._avisos_firma = None
+        self._llenar_avisos()
 
     # ---------- montos por estrategia y moneda
     def _disponible(self):
@@ -1323,7 +1399,7 @@ class Ventana(QMainWindow):
             aviso(self, t("Modo prueba"), t("En modo prueba no se cambian las estrategias del bot."))
             self._llenar_estrategias(); return
         activas = list(self.snap["activas"])
-        nombre = t(PT.NOMBRES[k])
+        nombre = M.nombre_estrategia(k)
         if not activar and activas == [k]:
             aviso(self, t("Estrategias"), t("Tiene que quedar al menos una estrategia activa."))
             self._llenar_estrategias(); return
@@ -2031,7 +2107,7 @@ class Ventana(QMainWindow):
                 cl.setStyleSheet(f"font-size:12px; color:{color_de(ch)}")
         self._pintar_grafico()
         self._llenar_abiertas(); self._llenar_ultimas(); self._llenar_pos(); self._llenar_ops(); self._llenar_log()
-        self._llenar_decisiones(); self._llenar_estrategias()
+        self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos()
         self._actualizar_bandeja(); self._notificar()
 
     def _pintar_grafico(self):

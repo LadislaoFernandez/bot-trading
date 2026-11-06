@@ -1,0 +1,112 @@
+"""Guarda las claves de API de Binance cifradas con la protección de datos de Windows (DPAPI).
+
+Solo el mismo usuario de Windows, en la misma PC, puede descifrarlas. Las claves nunca se escriben en texto plano.
+"""
+import ctypes
+import ctypes.wintypes as W
+import json
+import os
+
+ARCHIVO = {"demo": "claves_demo.dat", "real": "claves_real.dat"}
+
+
+class _BLOB(ctypes.Structure):
+    _fields_ = [("cbData", W.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+
+def _blob(data: bytes):
+    buf = ctypes.create_string_buffer(data, len(data))
+    return _BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), buf
+
+
+def _proteger(data: bytes) -> bytes:
+    entrada, _buf = _blob(data)
+    salida = _BLOB()
+    if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(entrada), "bot-trading", None, None, None, 0,
+                                                  ctypes.byref(salida)):
+        raise OSError("No se pudieron cifrar las claves")
+    try:
+        return ctypes.string_at(salida.pbData, salida.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(salida.pbData)
+
+
+def _desproteger(data: bytes) -> bytes:
+    entrada, _buf = _blob(data)
+    salida = _BLOB()
+    if not ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(entrada), None, None, None, None, 0,
+                                                    ctypes.byref(salida)):
+        raise OSError("No se pudieron descifrar las claves (¿otro usuario de Windows?)")
+    try:
+        return ctypes.string_at(salida.pbData, salida.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(salida.pbData)
+
+
+def guardar(modo, api_key, secret):
+    secret = secret.strip() if "PRIVATE KEY" not in secret else secret.strip() + "\n"
+    datos = json.dumps({"key": api_key.strip(), "secret": secret}).encode("utf-8")
+    tmp = ARCHIVO[modo] + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(_proteger(datos))
+    os.replace(tmp, ARCHIVO[modo])
+
+
+def cargar(modo):
+    try:
+        with open(ARCHIVO[modo], "rb") as f:
+            d = json.loads(_desproteger(f.read()).decode("utf-8"))
+        return d["key"], d["secret"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def hay(modo):
+    return os.path.exists(ARCHIVO[modo])
+
+
+def borrar(modo):
+    try:
+        os.remove(ARCHIVO[modo])
+    except OSError:
+        pass
+
+
+def enmascarar(api_key):
+    return (api_key[:4] + "…" + api_key[-4:]) if api_key and len(api_key) > 10 else "…"
+
+
+# ------------------------------------------------------------------ claves Ed25519 generadas en esta PC
+def generar_ed25519():
+    """Genera un par de claves Ed25519. Devuelve (privada_pem, publica_pem). La privada nunca sale de la PC."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    k = Ed25519PrivateKey.generate()
+    priv = k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                           serialization.NoEncryption()).decode()
+    pub = k.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    return priv, pub
+
+
+def guardar_privada_pendiente(modo, priv, pub):
+    """Guarda la clave privada cifrada hasta que el usuario cargue la clave de API que le da Binance."""
+    datos = json.dumps({"priv": priv, "pub": pub}).encode("utf-8")
+    with open(f"ed25519_{modo}.dat", "wb") as f:
+        f.write(_proteger(datos))
+
+
+def cargar_privada_pendiente(modo):
+    try:
+        with open(f"ed25519_{modo}.dat", "rb") as f:
+            d = json.loads(_desproteger(f.read()).decode("utf-8"))
+        return d["priv"], d["pub"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def completar_ed25519(modo, api_key):
+    """Une la clave de API de Binance con la privada Ed25519 ya guardada."""
+    par = cargar_privada_pendiente(modo)
+    if not par:
+        raise OSError("Primero generá el par de claves Ed25519 en la app")
+    guardar(modo, api_key, par[0])

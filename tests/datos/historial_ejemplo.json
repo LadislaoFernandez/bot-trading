@@ -1,0 +1,180 @@
+{
+ "calculado": 1793978094.170142,
+ "desde": "2023-01-05",
+ "estrategias": {
+  "TL": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 32,
+     "ganadoras": 50.0,
+     "promedio": 3.942246602094158,
+     "pf": 4.335562363299901
+    },
+    "Tendencia bajista": {
+     "ops": 0,
+     "ganadoras": null,
+     "promedio": null,
+     "pf": null
+    },
+    "Lateral": {
+     "ops": 16,
+     "ganadoras": 37.5,
+     "promedio": -0.16920940282961144,
+     "pf": 0.8838429960119828
+    },
+    "Total": {
+     "ops": 48,
+     "ganadoras": 45.83333333333333,
+     "promedio": 2.571761267119568,
+     "pf": 3.0194448620472
+    }
+   },
+   "resultado_prom_activo": 194.03956001607642
+  },
+  "BREAKOUT": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 24,
+     "ganadoras": 62.5,
+     "promedio": 6.939296574907502,
+     "pf": 7.988373143425955
+    },
+    "Tendencia bajista": {
+     "ops": 20,
+     "ganadoras": 60.0,
+     "promedio": 6.911948584168661,
+     "pf": 7.0547581565704185
+    },
+    "Lateral": {
+     "ops": 21,
+     "ganadoras": 61.904761904761905,
+     "promedio": 7.381581563920822,
+     "pf": 7.761086874544009
+    },
+    "Total": {
+     "ops": 65,
+     "ganadoras": 61.53846153846154,
+     "promedio": 7.073773881899855,
+     "pf": 7.607186524046223
+    }
+   },
+   "resultado_prom_activo": 5053.420232924648
+  },
+  "MR": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 0,
+     "ganadoras": null,
+     "promedio": null,
+     "pf": null
+    },
+    "Tendencia bajista": {
+     "ops": 0,
+     "ganadoras": null,
+     "promedio": null,
+     "pf": null
+    },
+    "Lateral": {
+     "ops": 3,
+     "ganadoras": 66.66666666666666,
+     "promedio": 1.5071582971220476,
+     "pf": 2.4826565464913
+    },
+    "Total": {
+     "ops": 3,
+     "ganadoras": 66.66666666666666,
+     "promedio": 1.5071582971220476,
+     "pf": 2.4826565464913
+    }
+   },
+   "resultado_prom_activo": 4.281179451393413
+  },
+  "RSI2": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 72,
+     "ganadoras": 65.27777777777779,
+     "promedio": 0.15302505302447883,
+     "pf": 1.5184042223105054
+    },
+    "Tendencia bajista": {
+     "ops": 79,
+     "ganadoras": 64.55696202531645,
+     "promedio": -0.02896715082716507,
+     "pf": 0.9323755647232962
+    },
+    "Lateral": {
+     "ops": 67,
+     "ganadoras": 70.1492537313433,
+     "promedio": 0.09765249876634667,
+     "pf": 1.2881570294547713
+    },
+    "Total": {
+     "ops": 218,
+     "ganadoras": 66.5137614678899,
+     "promedio": 0.070055579448448,
+     "pf": 1.1963032103336093
+    }
+   },
+   "resultado_prom_activo": 6.921665005648814
+  },
+  "CRUCE": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 3,
+     "ganadoras": 66.66666666666666,
+     "promedio": 13.2960958162411,
+     "pf": 38.89930734727494
+    },
+    "Tendencia bajista": {
+     "ops": 4,
+     "ganadoras": 50.0,
+     "promedio": 5.467626116672336,
+     "pf": 4.583769829306691
+    },
+    "Lateral": {
+     "ops": 21,
+     "ganadoras": 47.61904761904761,
+     "promedio": 5.219971264240822,
+     "pf": 4.981655994314537
+    },
+    "Total": {
+     "ops": 28,
+     "ganadoras": 50.0,
+     "promedio": 6.120649588016783,
+     "pf": 5.940811833405944
+    }
+   },
+   "resultado_prom_activo": 338.7102807491365
+  },
+  "SUPERTREND": {
+   "regimenes": {
+    "Tendencia alcista": {
+     "ops": 30,
+     "ganadoras": 36.666666666666664,
+     "promedio": 2.6526574029523737,
+     "pf": 3.290935327797285
+    },
+    "Tendencia bajista": {
+     "ops": 31,
+     "ganadoras": 41.935483870967744,
+     "promedio": 2.387678017815346,
+     "pf": 3.257613934501363
+    },
+    "Lateral": {
+     "ops": 44,
+     "ganadoras": 38.63636363636363,
+     "promedio": 2.3268203367326317,
+     "pf": 2.841478485303509
+    },
+    "Total": {
+     "ops": 105,
+     "ganadoras": 39.04761904761905,
+     "promedio": 2.437884147210312,
+     "pf": 3.0791021018568734
+    }
+   },
+   "resultado_prom_activo": 830.0241041024959
+  }
+ }
+}

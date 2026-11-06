@@ -1,0 +1,25 @@
+# datos de cada usuario: nunca van al repositorio
+ajustes.json
+ajustes.json.tmp
+estado_*.json
+estado_bot.json
+operaciones*.csv
+capital*.csv
+decisiones*.jsonl
+*.log
+*.dat
+historial_estrategias.json
+backtest_*.txt
+actualizacion.txt
+cambio_app.txt
+inicio_automatico.txt
+instalacion.txt
+respaldo*/
+respaldos/
+# generados
+__pycache__/
+*.pyc
+build/
+dist/
+sample/
+cambiar_a_app.bat

@@ -516,4 +516,6 @@ EN = {
     'Todavía no hay versiones publicadas. Tenés la {v}.': 'No versions published yet. You have {v}.',
     'No se pudo buscar actualizaciones (sin conexión o GitHub no responde). Se vuelve a intentar más tarde.': 'Could not check for updates (no connection or GitHub is not responding). It will try again later.',
     'Arreglos de la interfaz: los montos en los campos numéricos se ven bien, casillas con tilde y switches con perilla.': 'Interface fixes: amounts in number fields display correctly, checkboxes with a tick and switches with a knob.',
+    'El instalador cierra solo la copia del bot de su propia carpeta.': 'The installer only closes the copy of the bot in its own folder.',
+    'El aviso de actualización muestra los cambios sin el formato de GitHub.': 'The update notice shows the changes without GitHub formatting.',
 }

@@ -62,7 +62,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Recurse build/python build/app/python
-          & build/app/python/python.exe -c "import sys; sys.argv=['app.py']; import config, i18n, engine, paper_trader, live, mercado, auto, actualizador, claves, app_data, reglas, catalogo, alertas, laboratorio; print('modulos OK', config.VERSION)"
+          & build/app/python/python.exe -c "import sys; sys.argv=['app.py']; import config, i18n, engine, paper_trader, live, mercado, auto, actualizador, claves, app_data, reglas, catalogo, alertas, laboratorio, archivos; print('modulos OK', config.VERSION)"
           if ($LASTEXITCODE -ne 0) { throw "la app no importa con el Python del instalador" }
       - uses: actions/upload-artifact@v4
         with:

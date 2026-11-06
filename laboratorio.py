@@ -241,16 +241,10 @@ def aprueba(res):
 
 # ------------------------------------------------------------------ estado y resultado
 def _estado(**cambios):
-    try:
-        with open(ESTADO, encoding="utf-8") as f:
-            st = json.load(f)
-    except (OSError, ValueError):
-        st = {}
+    import archivos
+    st = archivos.leer_json(ESTADO, {}) or {}
     st.update(cambios)
-    tmp = ESTADO + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(st, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, ESTADO)
+    archivos.escribir_json(ESTADO, st, indent=1)
     return st
 
 

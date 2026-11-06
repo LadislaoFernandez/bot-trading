@@ -12,19 +12,14 @@ _lock = threading.Lock()
 
 
 def _leer():
-    try:
-        with open(ARCHIVO, encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, list) else []
-    except (OSError, ValueError):
-        return []
+    import archivos
+    d = archivos.leer_json(ARCHIVO, [])
+    return d if isinstance(d, list) else []
 
 
 def _escribir(lista):
-    tmp = ARCHIVO + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(lista[-200:], f, ensure_ascii=False, indent=1)
-    os.replace(tmp, ARCHIVO)
+    import archivos
+    archivos.escribir_json(ARCHIVO, lista[-200:], indent=1)
 
 
 def agregar(id_, tipo, titulo, texto, datos=None):

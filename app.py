@@ -1260,14 +1260,13 @@ class Ventana(QMainWindow):
         return PT.leer_ajustes().get("laboratorio", {}) or {}
 
     def _lab_estado(self):
-        try:
-            with open("laboratorio_estado.json", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return {}
+        import archivos
+        return archivos.leer_json("laboratorio_estado.json", {}, segundos=0.3) or {}
 
     def _lab_corriendo(self, st=None):
         st = st or self._lab_estado()
+        if time.time() - getattr(self, "_lab_lanzado", 0) < 180 and st.get("inicio", 0) < getattr(self, "_lab_lanzado", 0):
+            return True  # recién lanzado: todavía no escribió su estado
         return bool(st.get("corriendo")) and time.time() - st.get("latido", 0) < 300
 
     def _cambiar_lab(self, activo):
@@ -1285,7 +1284,10 @@ class Ventana(QMainWindow):
         st = self._lab_estado()
         if self._lab_corriendo(st):
             return
-        if time.time() - st.get("fin", 0) >= 6 * 3600:
+        fallo = str(st.get("mensaje", "")).startswith("error") or (st and not st.get("fin"))
+        ultimo = max(st.get("fin", 0), st.get("latido", 0), getattr(self, "_lab_lanzado", 0))
+        espera = 3600 if fallo else 6 * 3600  # si la última búsqueda falló, reintenta en 1 hora
+        if time.time() - ultimo >= espera:
             self._lanzar_lab()
 
     def _lanzar_lab(self, manual=False):
@@ -1298,10 +1300,7 @@ class Ventana(QMainWindow):
             with open("laboratorio.log", "a", encoding="utf-8") as out:
                 subprocess.Popen([sys.executable, os.path.abspath("laboratorio.py"), "--minutos", "20"], cwd=os.getcwd(),
                                  stdout=out, stderr=out, creationflags=flags)
-            with open("laboratorio_estado.json.tmp", "w", encoding="utf-8") as f:
-                json.dump(dict(self._lab_estado(), corriendo=True, latido=time.time(), inicio=time.time(), probadas=0,
-                               mensaje="iniciando"), f)
-            os.replace("laboratorio_estado.json.tmp", "laboratorio_estado.json")
+            self._lab_lanzado = time.time()
             PT.log(t("Laboratorio de estrategias: búsqueda iniciada (20 minutos)."))
         except OSError as e:
             aviso(self, t("Laboratorio de estrategias"), t("No se pudo iniciar:") + f" {e}", True)

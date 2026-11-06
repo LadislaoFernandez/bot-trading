@@ -35,9 +35,13 @@ ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de c
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.6"
+VERSION = "1.6.1"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.6.1", "06/11/2026", [
+        "Arreglo: en Windows, el laboratorio podía cortarse al guardar su estado mientras la app lo leía. Ahora todos los "
+        "archivos se guardan reintentando unos segundos.",
+    ]),
     ("1.6", "06/11/2026", [
         "Laboratorio de estrategias: busca estrategias nuevas en segundo plano y propone solo las que pasan una prueba "
         "con datos que no usó para crearlas.",

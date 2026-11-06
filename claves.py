@@ -46,10 +46,11 @@ def _desproteger(data: bytes) -> bytes:
 def guardar(modo, api_key, secret):
     secret = secret.strip() if "PRIVATE KEY" not in secret else secret.strip() + "\n"
     datos = json.dumps({"key": api_key.strip(), "secret": secret}).encode("utf-8")
-    tmp = ARCHIVO[modo] + ".tmp"
+    import archivos
+    tmp = f"{ARCHIVO[modo]}.{os.getpid()}.tmp"
     with open(tmp, "wb") as f:
         f.write(_proteger(datos))
-    os.replace(tmp, ARCHIVO[modo])
+    archivos.reemplazar(tmp, ARCHIVO[modo])
 
 
 def cargar(modo):

@@ -45,10 +45,8 @@ def load_state():
 
 
 def save_state(st):
-    tmp = K.STATE_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(st, f, indent=2)
-    os.replace(tmp, K.STATE_FILE)
+    import archivos
+    archivos.escribir_json(K.STATE_FILE, st, indent=2)
 
 
 def append_csv(path, rows, fields):
@@ -87,11 +85,9 @@ def leer_ajustes():
 
 
 def guardar_ajustes(**cambios):
+    import archivos
     d = leer_ajustes(); d.update(cambios)
-    tmp = "ajustes.json.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, "ajustes.json")
+    archivos.escribir_json("ajustes.json", d, indent=2)
 
 
 def estrategias_activas():

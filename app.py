@@ -1587,7 +1587,8 @@ class Ventana(QMainWindow):
             return
         if PRUEBA:
             aviso(self, t("Modo prueba"), t("En modo prueba no se instalan actualizaciones.")); return
-        notas = info.get("notas") or ""
+        # de las notas de la publicación quedan solo los cambios (sin el formato de GitHub)
+        notas = "\n".join("• " + l.strip()[2:] for l in (info.get("notas") or "").splitlines() if l.strip().startswith("- "))
         msg = t("¿Instalar la versión {v}?", v=info["version"]) + "\n\n" + (notas[:900] + "\n\n" if notas else "") + t(
             "La app se reinicia sola al terminar (tarda menos de un minuto). Tus operaciones, ajustes y claves no se tocan, "
             "y se guarda una copia de la versión actual por si hay que volver atrás.")

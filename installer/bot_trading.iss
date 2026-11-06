@@ -66,8 +66,8 @@ procedure CerrarBot();
 var
   R: Integer;
 begin
-  { cierra la app del bot si está abierta (solo los pythonw que corren app.py) }
-  Exec('powershell.exe', '-NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name=''pythonw.exe''\" | Where-Object { $_.CommandLine -like ''*app.py*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
+  { cierra la app del bot instalada en esta carpeta, si está abierta (no toca otras copias del bot) }
+  Exec('powershell.exe', '-NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name=''pythonw.exe''\" | Where-Object { $_.CommandLine -like ''*' + ExpandConstant('{app}') + '\app.py*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
        '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 

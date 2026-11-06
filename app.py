@@ -25,8 +25,8 @@ sys.excepthook = _log_crash
 DATOS = next((x.split("=", 1)[1] for x in sys.argv if x.startswith("--datos=")), ".")
 PRUEBA = "--prueba" in sys.argv
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen,
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtGui import (QAction, QDesktopServices, QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
@@ -1075,6 +1075,25 @@ class Ventana(QMainWindow):
         self.lbl_minimos = lbl("", rol="muted", size=12, wrap=True); pmv.addWidget(self.lbl_minimos)
         iv.addWidget(pm); iv.addSpacing(6)
 
+        # laboratorio
+        pl = panel(); plv = QVBoxLayout(pl); plv.setContentsMargins(18, 14, 18, 14); plv.setSpacing(8)
+        hl_ = QHBoxLayout(); hl_.addWidget(lbl(t("Laboratorio de estrategias"), rol="titulo")); hl_.addStretch()
+        self.sw_lab = QCheckBox(t("Activo")); self.sw_lab.setProperty("rol", "switch"); self.sw_lab.setCursor(Qt.PointingHandCursor)
+        self.sw_lab.clicked.connect(self._cambiar_lab); hl_.addWidget(self.sw_lab); plv.addLayout(hl_)
+        plv.addWidget(lbl(t(
+            "Busca estrategias nuevas combinando las piezas que ya usa el bot (filtros de tendencia, disparos de entrada, "
+            "salidas y stops). Las elige con velas de 2022 a 2024 y las prueba con velas de 2025 a hoy, que no usó para "
+            "elegirlas: solo propone las que ganan en esa prueba en al menos 2 de las 3 monedas y en 3 de cada 4 años. "
+            "Corre en segundo plano cada 6 horas durante 20 minutos, con prioridad baja. Las candidatas nunca operan "
+            "solas: vos decidís si agregarlas."), rol="muted", size=12, wrap=True))
+        hb_ = QHBoxLayout(); hb_.setSpacing(8)
+        self.lbl_lab = lbl("", size=13, wrap=True); hb_.addWidget(self.lbl_lab, 1)
+        self.btn_lab = boton(t("Buscar ahora"), accion=lambda: self._lanzar_lab(manual=True)); hb_.addWidget(self.btn_lab)
+        plv.addLayout(hb_)
+        self.box_cand = QVBoxLayout(); self.box_cand.setSpacing(10); plv.addLayout(self.box_cand)
+        iv.addWidget(pl); iv.addSpacing(6)
+        self._cand_firma = None
+
         h = QHBoxLayout(); h.addWidget(lbl(t("Estrategias disponibles"), rol="titulo")); h.addStretch()
         self.lbl_hist = lbl("", rol="muted", size=12); h.addWidget(self.lbl_hist)
         self.btn_hist = boton(t("Recalcular historial"), accion=self.mkt.recalcular.set)
@@ -1114,6 +1133,12 @@ class Ventana(QMainWindow):
                 sp.valueChanged.connect(self._montos_editados)
                 cw = con_pasos(sp); mh.addWidget(cw); self.montos[(k, a)] = sp; self.montos_w[(k, a)] = cw
             mh.addStretch(); pv.addWidget(mw); self.filas_monto[k] = mw
+            import catalogo
+            if catalogo.DEFINICIONES.get(k, {}).get("_origen") == "mis_estrategias":
+                hq = QHBoxLayout(); hq.addStretch()
+                hq.addWidget(boton(t("Proponer para todos"), accion=lambda _=False, k=k: self._proponer(catalogo.DEFINICIONES[k])))
+                hq.addWidget(boton(t("Quitar de mis estrategias"), "peligro", lambda _=False, k=k: self._quitar_propia(k)))
+                pv.addLayout(hq)
             self.estr_ui[k] = (sw, rec, porque, celdas); iv.addWidget(p)
         iv.addWidget(lbl(t("Cada celda muestra el factor de ganancia (lo ganado dividido lo perdido: más de 1 es positivo) y "
                            "cuántas operaciones hubo, sumando BTC, ETH y SOL con el mismo riesgo y comisiones que usa el "
@@ -1229,6 +1254,175 @@ class Ventana(QMainWindow):
               "y desde ahí reinvierte sus ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición "
               "abierta, el monto nuevo se aplica cuando la cierre."))
         self._llenar_montos()
+
+    # ---------- laboratorio (laboratorio.py)
+    def _lab_ajustes(self):
+        return PT.leer_ajustes().get("laboratorio", {}) or {}
+
+    def _lab_estado(self):
+        try:
+            with open("laboratorio_estado.json", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _lab_corriendo(self, st=None):
+        st = st or self._lab_estado()
+        return bool(st.get("corriendo")) and time.time() - st.get("latido", 0) < 300
+
+    def _cambiar_lab(self, activo):
+        aj = self._lab_ajustes(); aj["activo"] = bool(activo)
+        PT.guardar_ajustes(laboratorio=aj)
+        PT.log(t("Laboratorio de estrategias encendido.") if activo else t("Laboratorio de estrategias apagado."))
+        if activo:
+            QTimer.singleShot(2000, self._lab_tick)
+        self._llenar_lab()
+
+    def _lab_tick(self):
+        """Lanza el laboratorio cada 6 horas si está activo."""
+        if PRUEBA or not self._lab_ajustes().get("activo"):
+            return
+        st = self._lab_estado()
+        if self._lab_corriendo(st):
+            return
+        if time.time() - st.get("fin", 0) >= 6 * 3600:
+            self._lanzar_lab()
+
+    def _lanzar_lab(self, manual=False):
+        if PRUEBA:
+            aviso(self, t("Modo prueba"), t("En modo prueba no corre el laboratorio.")); return
+        if self._lab_corriendo():
+            return
+        flags = 0x08000000 if os.name == "nt" else 0  # sin ventana
+        try:
+            with open("laboratorio.log", "a", encoding="utf-8") as out:
+                subprocess.Popen([sys.executable, os.path.abspath("laboratorio.py"), "--minutos", "20"], cwd=os.getcwd(),
+                                 stdout=out, stderr=out, creationflags=flags)
+            with open("laboratorio_estado.json.tmp", "w", encoding="utf-8") as f:
+                json.dump(dict(self._lab_estado(), corriendo=True, latido=time.time(), inicio=time.time(), probadas=0,
+                               mensaje="iniciando"), f)
+            os.replace("laboratorio_estado.json.tmp", "laboratorio_estado.json")
+            PT.log(t("Laboratorio de estrategias: búsqueda iniciada (20 minutos)."))
+        except OSError as e:
+            aviso(self, t("Laboratorio de estrategias"), t("No se pudo iniciar:") + f" {e}", True)
+        self._llenar_lab()
+
+    def _candidatas(self):
+        out = []
+        if os.path.isdir("candidatas"):
+            for fn in sorted(os.listdir("candidatas")):
+                if fn.startswith("LAB_") and fn.endswith(".json"):
+                    try:
+                        with open(os.path.join("candidatas", fn), encoding="utf-8") as f:
+                            out.append(json.load(f))
+                    except (OSError, ValueError):
+                        pass
+        return sorted(out, key=lambda d: -d.get("numero", 0))
+
+    def _llenar_lab(self):
+        aj, st = self._lab_ajustes(), self._lab_estado()
+        self.sw_lab.blockSignals(True); self.sw_lab.setChecked(bool(aj.get("activo"))); self.sw_lab.blockSignals(False)
+        self.sw_lab.setText(t("Activo") if aj.get("activo") else t("Apagado"))
+        corriendo = self._lab_corriendo(st)
+        self.btn_lab.setEnabled(not corriendo)
+        if corriendo:
+            txt = t("Buscando… {n} combinaciones probadas en esta corrida.", n=st.get("probadas", 0))
+        elif st.get("fin"):
+            txt = t("Última búsqueda: {h}. Probó {n} combinaciones ({tot} en total).",
+                    h=f"{datetime.fromtimestamp(st['fin']):%d/%m %H:%M}", n=st.get("probadas", 0),
+                    tot=st.get("probadas_total", 0))
+            if str(st.get("mensaje", "")).startswith("error"):
+                txt += " " + t("Terminó con un error:") + " " + st["mensaje"][7:150]
+            elif st.get("finalistas") and not st.get("nuevas"):
+                txt += " " + t("Ninguna de las mejores pasó la prueba con datos nuevos.")
+        else:
+            txt = t("Todavía no buscó estrategias.") if aj.get("activo") else t("Apagado. Encendelo para que busque.")
+        self.lbl_lab.setText(txt)
+        cands = self._candidatas()
+        firma = tuple(d["id"] for d in cands) + (i18n.LANG,)
+        if firma == self._cand_firma:
+            return
+        self._cand_firma = firma
+        self._vaciar(self.box_cand)
+        if not cands:
+            self.box_cand.addWidget(lbl(t("No hay candidatas por ahora. Es normal: la gran mayoría de las combinaciones no "
+                                          "pasa las pruebas."), rol="muted", size=12, wrap=True))
+            return
+        import catalogo
+        import reglas
+        for d in cands:
+            c = QFrame(); c.setObjectName("actualizacion"); cv = QVBoxLayout(c); cv.setContentsMargins(14, 12, 14, 12)
+            cv.setSpacing(6)
+            top = QHBoxLayout(); top.addWidget(lbl(catalogo.nombre(d, i18n.LANG), size=14, weight=600)); ch = lbl("", rol="chip")
+            chip(ch, t("Candidata"), ACCENT); top.addWidget(ch); top.addStretch()
+            top.addWidget(lbl(t("Encontrada el {f}", f=d.get("creada", "")), rol="muted", size=12)); cv.addLayout(top)
+            cv.addWidget(lbl(reglas.describir(d), size=13, wrap=True))
+            v = d.get("validacion", {})
+            en, pr = v.get("entreno", {}), v.get("prueba", {})
+            mon = ", ".join(f"{a} {pct(m['resultado'], 1, True)}" for a, m in v.get("por_moneda", {}).items())
+            cv.addWidget(lbl(t("Entrenamiento (2022 a 2024): ganó {pf1} veces lo que perdió, en {n1} operaciones. Prueba con "
+                               "datos que no usó para crearla (2025 a hoy): {pf2} veces, en {n2} operaciones. Resultado de "
+                               "la prueba por moneda (sumando cada operación): {m}.", pf1=num(en.get("pf")),
+                               n1=en.get("ops"), pf2=num(pr.get("pf")), n2=pr.get("ops"), m=mon), size=12, wrap=True,
+                             color=GAIN))
+            hb = QHBoxLayout(); hb.setSpacing(8)
+            hb.addWidget(boton(t("Agregar a mis estrategias"), "primario", lambda _=False, d=d: self._agregar_candidata(d)))
+            hb.addWidget(boton(t("Descartar"), accion=lambda _=False, d=d: self._descartar_candidata(d)))
+            hb.addStretch()
+            hb.addWidget(boton(t("Proponer para todos"), accion=lambda _=False, d=d: self._proponer(d),
+                               tip=t("Abre una propuesta en GitHub con esta estrategia para que se sume al catálogo de "
+                                     "todos los usuarios.")))
+            cv.addLayout(hb)
+            self.box_cand.addWidget(c)
+
+    def _agregar_candidata(self, d):
+        import catalogo
+        if not preguntar(self, t("Laboratorio de estrategias"), t(
+                "¿Agregar {e} a tus estrategias?", e=catalogo.nombre(d, i18n.LANG)) + "\n\n" + t(
+                "Aparece en la lista de estrategias como cualquier otra, apagada. Antes de activarla conviene dejarla "
+                "unos días en modo simulado o demo. Para que aparezca, la app se reinicia."),
+                t("Agregar y reiniciar"), t("Cancelar")):
+            return
+        catalogo.guardar_propia(d)
+        try:
+            os.remove(os.path.join("candidatas", d["id"] + ".json"))
+        except OSError:
+            pass
+        PT.log(t("Estrategia {e} agregada desde el laboratorio.", e=d["id"]))
+        self.reiniciar_app()
+
+    def _descartar_candidata(self, d):
+        os.makedirs(os.path.join("candidatas", "descartadas"), exist_ok=True)
+        try:
+            os.replace(os.path.join("candidatas", d["id"] + ".json"), os.path.join("candidatas", "descartadas", d["id"] + ".json"))
+        except OSError:
+            pass
+        self._cand_firma = None
+        self._llenar_lab()
+
+    def _quitar_propia(self, k):
+        import catalogo
+        if k in (self.snap or {}).get("activas", []) or any(f["clave"] == k and f["lado"] for f in (self.snap or {}).get("posiciones", [])):
+            aviso(self, t("Estrategias"), t("Primero desactivala y esperá a que cierre sus posiciones.")); return
+        if not preguntar(self, t("Estrategias"), t("¿Quitar {e} de tus estrategias? La app se reinicia.",
+                                                    e=M.nombre_estrategia(k)), t("Quitar y reiniciar"), t("Cancelar")):
+            return
+        catalogo.quitar_propia(k)
+        self.reiniciar_app()
+
+    def _proponer(self, d):
+        """Abre en el navegador una propuesta en GitHub (la envía el usuario con su cuenta: la app no sube nada)."""
+        import urllib.parse
+        import catalogo
+        import reglas
+        limpio = {k: v for k, v in d.items() if not k.startswith("_")}
+        v = d.get("validacion", {})
+        cuerpo = (f"Estrategia propuesta desde la app (versión {K.VERSION}).\n\n**{catalogo.nombre(d, 'es')}**\n\n"
+                  f"{reglas.describir(d)}\n\nValidación: entrenamiento {v.get('entreno')}, prueba {v.get('prueba')}, "
+                  f"por moneda {v.get('por_moneda')}.\n\n```json\n{json.dumps(limpio, ensure_ascii=False, indent=1)}\n```\n")
+        url = (f"https://github.com/{K.REPO}/issues/new?" +
+               urllib.parse.urlencode({"title": f"Propuesta de estrategia: {catalogo.nombre(d, 'es')}", "body": cuerpo[:6000]}))
+        QDesktopServices.openUrl(QUrl(url))
 
     # ---------- avisos (alertas.py)
     def _llenar_avisos(self):
@@ -1639,6 +1833,8 @@ class Ventana(QMainWindow):
         self.lbl_act.setText(t("Versión instalada: {v}.", v=K.VERSION))
         self.t_act = QTimer(self); self.t_act.timeout.connect(self._buscar_auto); self.t_act.start(3600 * 1000)
         QTimer.singleShot(15000, self._buscar_auto)
+        self.t_lab = QTimer(self); self.t_lab.timeout.connect(self._lab_tick); self.t_lab.start(5 * 60 * 1000)
+        QTimer.singleShot(60000, self._lab_tick)
         return w
 
     # ---------- actualizaciones
@@ -2107,7 +2303,7 @@ class Ventana(QMainWindow):
                 cl.setStyleSheet(f"font-size:12px; color:{color_de(ch)}")
         self._pintar_grafico()
         self._llenar_abiertas(); self._llenar_ultimas(); self._llenar_pos(); self._llenar_ops(); self._llenar_log()
-        self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos()
+        self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos(); self._llenar_lab()
         self._actualizar_bandeja(); self._notificar()
 
     def _pintar_grafico(self):

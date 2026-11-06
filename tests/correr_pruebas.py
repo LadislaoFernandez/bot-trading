@@ -160,6 +160,42 @@ def prueba_reglas():
     print("5) estrategias como datos: las 6 originales escritas como datos dan exactamente lo mismo que las de código")
 
 
+def prueba_laboratorio():
+    d = carpeta_nueva()
+    import catalogo
+    import engine as E
+    import laboratorio as L
+    import reglas as R
+    os.chdir(d)
+    ahora = int(time.time() * 1000)
+    off = ahora - ROWS[-1][0]
+    Ds = {}
+    for k, esc in (("A", 1), ("B", 1 / 300), ("C", 1 / 20)):
+        rr = [[r[0] + off, r[1] * esc, r[2] * esc, r[3] * esc, r[4] * esc] for r in ROWS]
+        Ds[k] = R.completar(E.prepare(rr, 3600000, 4 * 3600000))
+    L.DESDE = time.strftime("%Y-%m-%d", time.gmtime(Ds["A"]["T"][300] / 1000))
+    L.CORTE = time.strftime("%Y-%m-%d", time.gmtime(Ds["A"]["T"][3500] / 1000))
+    nuevas = L.correr(0.15, semilla=1, Ds=Ds, log=lambda m: None)
+    assert nuevas and len(nuevas) <= L.MAX_NUEVAS, len(nuevas)
+    assert len({n["_familia"] for n in nuevas}) == len(nuevas)
+    for n in nuevas:
+        assert not R.validar(n) and n["validacion"]["prueba"]["pf"] >= L.PF_PRUEBA
+    raiz_antes = catalogo.RAIZ
+    try:
+        catalogo.RAIZ = d
+        catalogo.guardar_propia(nuevas[0])
+        strats, nombres = {}, {}
+        catalogo.cargar(strats, nombres)
+        assert nuevas[0]["id"] in strats and catalogo.DEFINICIONES[nuevas[0]["id"]]["_origen"] == "mis_estrategias"
+        catalogo.quitar_propia(nuevas[0]["id"])
+    finally:
+        catalogo.RAIZ = raiz_antes
+        catalogo.cargar({}, {})
+    otra = L.correr(0.1, semilla=1, Ds=Ds, log=lambda m: None)  # no repite lo ya propuesto
+    assert not {n["_familia"] for n in otra} & {n["_familia"] for n in nuevas}
+    print(f"6) laboratorio: {len(nuevas)} candidatas en una corrida corta, todas validadas y sin repetir familias")
+
+
 def prueba_actualizador():
     import actualizador as AC
     import config as K
@@ -192,4 +228,5 @@ if __name__ == "__main__":
     prueba_binance(11, auto=True)
     prueba_actualizador()
     prueba_reglas()
+    prueba_laboratorio()
     print(f"TODO OK en {time.time() - t0:.0f} s")

@@ -1,6 +1,6 @@
 # Bot de trading
 
-Bot de trading para **Binance Futuros (USDⓈ-M)** con aplicación de escritorio para Windows. Opera BTC, ETH y SOL en velas de 1 hora con seis estrategias (Breakout, Resorte de tendencia, Reversión a la media, RSI(2), Cruce de medias y Supertrend), que se activan a mano o deja que el bot las elija solo según el tipo de mercado.
+Bot de trading para **Binance Futuros (USDⓈ-M)** con aplicación de escritorio para Windows. Opera BTC, ETH y SOL en velas de 1 hora con seis estrategias (Breakout, Resorte de tendencia, Reversión a la media, RSI(2), Cruce de medias y Supertrend), que se activan a mano o deja que el bot las elija solo según el tipo de mercado. Un laboratorio busca estrategias nuevas en segundo plano y propone las que pasan una prueba con datos que no usó para crearlas.
 
 > Operar con apalancamiento es riesgoso y podés perder dinero. Los resultados pasados no garantizan resultados futuros. Probalo primero en modo simulado y en la demo de Binance.
 
@@ -43,6 +43,9 @@ python backtest.py --desde 2026-01-01 --hasta 2026-11-01
 | `engine.py` | Indicadores y reglas de cada estrategia |
 | `paper_trader.py` / `live.py` | El bot: modo simulado / órdenes en Binance |
 | `auto.py` | Modo automático: elige estrategias según el mercado |
+| `reglas.py` / `catalogo.py` | Estrategias definidas como datos (JSON) y su catálogo (`estrategias/`, `mis_estrategias/`) |
+| `laboratorio.py` | Laboratorio: busca estrategias nuevas y propone las que pasan la prueba fuera de muestra |
+| `alertas.py` | Avisos de la app (estrategias que empeoran, candidatas nuevas) |
 | `mercado.py` | Lectura del mercado e historial por tipo de mercado |
 | `actualizador.py` | Actualizaciones desde GitHub Releases |
 | `installer/` | Instalador para Windows |

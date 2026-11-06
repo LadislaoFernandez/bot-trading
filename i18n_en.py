@@ -436,7 +436,7 @@ EN = {
     'Cómo poner el bot a funcionar, el modo de operación y las claves de Binance, el capital, el riesgo, tus preferencias y las actualizaciones.': 'How to get the bot running, the trading mode and Binance keys, capital, risk, your preferences and updates.',
     'Qué hacer, en orden, para que el bot opere en Binance.': 'What to do, in order, so the bot trades on Binance.',
     'Actualizaciones': 'Updates',
-    'La app busca versiones nuevas al iniciar y cada 6 horas. Si hay una, aparece un aviso abajo a la izquierda para instalarla. Instalar no toca tus operaciones, ajustes ni claves.': "The app looks for new versions when it starts and every 6 hours. If there is one, a notice appears at the bottom left to install it. Installing doesn't touch your trades, settings or keys.",
+    'La app busca versiones nuevas al iniciar y cada 1 hora. Si hay una, aparece un aviso abajo a la izquierda para instalarla. Instalar no toca tus operaciones, ajustes ni claves.': "The app looks for new versions when it starts and every hour. If there is one, a notice appears at the bottom left to install it. Installing doesn't touch your trades, settings or keys.",
     'Buscar actualizaciones': 'Check for updates',
     'Instalar actualización': 'Install update',
     'Buscar actualizaciones automáticamente': 'Check for updates automatically',
@@ -518,4 +518,8 @@ EN = {
     'Arreglos de la interfaz: los montos en los campos numéricos se ven bien, casillas con tilde y switches con perilla.': 'Interface fixes: amounts in number fields display correctly, checkboxes with a tick and switches with a knob.',
     'El instalador cierra solo la copia del bot de su propia carpeta.': 'The installer only closes the copy of the bot in its own folder.',
     'El aviso de actualización muestra los cambios sin el formato de GitHub.': 'The update notice shows the changes without GitHub formatting.',
+    'Instalar las actualizaciones automáticamente (sin preguntar)': 'Install updates automatically (without asking)',
+    'Instalando automáticamente la versión {v}.': 'Automatically installing version {v}.',
+    'Opción para instalar las actualizaciones automáticamente, sin preguntar.': 'Option to install updates automatically, without asking.',
+    'La app busca actualizaciones cada 1 hora.': 'The app checks for updates every hour.',
 }

@@ -1533,7 +1533,7 @@ class Ventana(QMainWindow):
 
         # acerca de
         pv = self._seccion(iv, t("Actualizaciones"), t(
-            "La app busca versiones nuevas al iniciar y cada 6 horas. Si hay una, aparece un aviso abajo a la izquierda "
+            "La app busca versiones nuevas al iniciar y cada 1 hora. Si hay una, aparece un aviso abajo a la izquierda "
             "para instalarla. Instalar no toca tus operaciones, ajustes ni claves."))
         self.lbl_act = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_act)
         h = QHBoxLayout(); h.setSpacing(8)
@@ -1545,6 +1545,10 @@ class Ventana(QMainWindow):
         self.chk_auto_act.setChecked(PT.leer_ajustes().get("buscar_actualizaciones", True))
         self.chk_auto_act.toggled.connect(lambda v: PT.guardar_ajustes(buscar_actualizaciones=bool(v)))
         pv.addWidget(self.chk_auto_act)
+        self.chk_inst_auto = QCheckBox(t("Instalar las actualizaciones automáticamente (sin preguntar)"))
+        self.chk_inst_auto.setChecked(PT.leer_ajustes().get("instalar_actualizaciones_auto", False))
+        self.chk_inst_auto.toggled.connect(lambda v: PT.guardar_ajustes(instalar_actualizaciones_auto=bool(v)))
+        pv.addWidget(self.chk_inst_auto)
 
         pv = self._seccion(iv, t("Acerca de"))
         pv.addWidget(lbl(t("Bot de trading, versión {v}.", v=K.VERSION), size=13, wrap=True))
@@ -1557,7 +1561,7 @@ class Ventana(QMainWindow):
         self.t_trabajo = QTimer(self); self.t_trabajo.timeout.connect(self._ver_trabajo); self.t_trabajo.start(700)
         self._act_info, self._act_res, self._act_ocupado, self._act_prog = None, None, False, None
         self.lbl_act.setText(t("Versión instalada: {v}.", v=K.VERSION))
-        self.t_act = QTimer(self); self.t_act.timeout.connect(self._buscar_auto); self.t_act.start(6 * 3600 * 1000)
+        self.t_act = QTimer(self); self.t_act.timeout.connect(self._buscar_auto); self.t_act.start(3600 * 1000)
         QTimer.singleShot(15000, self._buscar_auto)
         return w
 
@@ -1581,7 +1585,14 @@ class Ventana(QMainWindow):
                 self._act_res = ("error_busqueda", str(e) if str(e) == "repo-no-configurado" else f"{type(e).__name__}: {e}")
         threading.Thread(target=tarea, daemon=True).start()
 
-    def _instalar_actualizacion(self):
+    def _instalar_sola(self):
+        """Instalación automática: espera a que el bot no esté en medio de una revisión."""
+        if PT.STATUS.get("estado") == "revisando" or self._act_ocupado:
+            QTimer.singleShot(60000, self._instalar_sola); return
+        PT.log(t("Instalando automáticamente la versión {v}.", v=self._act_info["version"]))
+        self._instalar_actualizacion(confirmar=False)
+
+    def _instalar_actualizacion(self, confirmar=True):
         info = self._act_info
         if not info or self._act_ocupado:
             return
@@ -1592,7 +1603,7 @@ class Ventana(QMainWindow):
         msg = t("¿Instalar la versión {v}?", v=info["version"]) + "\n\n" + (notas[:900] + "\n\n" if notas else "") + t(
             "La app se reinicia sola al terminar (tarda menos de un minuto). Tus operaciones, ajustes y claves no se tocan, "
             "y se guarda una copia de la versión actual por si hay que volver atrás.")
-        if not preguntar(self, t("Actualización"), msg, t("Instalar"), t("Más tarde")):
+        if confirmar and not preguntar(self, t("Actualización"), msg, t("Instalar"), t("Más tarde")):
             return
         self._act_ocupado = True
         for b in (self.btn_act_lat, self.btn_instalar_act, self.btn_buscar_act):
@@ -1631,7 +1642,9 @@ class Ventana(QMainWindow):
                 self.lbl_act_lat_sub.setText(t("Versión {v}", v=dato["version"]))
                 self.box_act.setVisible(True); self.btn_act_lat.setEnabled(True)
                 self.btn_instalar_act.setVisible(True); self.btn_instalar_act.setEnabled(True)
-                if not self._act_manual and getattr(self, "tray", None):
+                if not self._act_manual and PT.leer_ajustes().get("instalar_actualizaciones_auto", False) and not PRUEBA:
+                    QTimer.singleShot(5000, self._instalar_sola)
+                elif not self._act_manual and getattr(self, "tray", None):
                     self.tray.showMessage(t("Actualización disponible"), t("Versión {v}. Abrí la app para instalarla.",
                                                                            v=dato["version"]), QSystemTrayIcon.Information, 6000)
             else:

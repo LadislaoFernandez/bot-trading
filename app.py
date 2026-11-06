@@ -1479,6 +1479,10 @@ class Ventana(QMainWindow):
         if not self._llenando_montos:
             self._montos_sucios = True
             self._resumen_montos()
+            if not hasattr(self, "_t_montos"):
+                self._t_montos = QTimer(self); self._t_montos.setSingleShot(True)
+                self._t_montos.timeout.connect(lambda: self._guardar_montos(silencioso=True))
+            self._t_montos.start(2000)  # se guardan solos a los 2 segundos de dejar de tocarlos
 
     def _suma_montos(self):
         if self.snap and self.snap.get("auto"):
@@ -1499,7 +1503,7 @@ class Ventana(QMainWindow):
             txt += " " + t("Te pasaste por {x}: bajá algún monto antes de guardar.", x=usd(-resto))
             col = LOSS
         elif self._montos_sucios:
-            txt += " " + t("Hay cambios sin guardar.")
+            txt += " " + t("Guardando…")
             col = AMBER
         else:
             col = TEXT
@@ -1520,12 +1524,18 @@ class Ventana(QMainWindow):
     def _montos_actuales(self):
         return {f"{a}_{k}": round(sp.value(), 2) for (k, a), sp in self.montos.items()}
 
-    def _guardar_montos(self):
+    def _guardar_montos(self, silencioso=False):
+        if not self._montos_sucios:
+            return
         if PRUEBA:
-            aviso(self, t("Modo prueba"), t("En modo prueba no se cambian los montos del bot.")); return
+            if not silencioso:
+                aviso(self, t("Modo prueba"), t("En modo prueba no se cambian los montos del bot."))
+            return
         resto = self._disponible() - self._suma_montos()
         if resto < -0.005:
-            aviso(self, t("Montos"), t("La suma de los montos supera lo disponible por {x}.", x=usd(-resto)), True); return
+            if not silencioso:
+                aviso(self, t("Montos"), t("La suma de los montos supera lo disponible por {x}.", x=usd(-resto)), True)
+            return
         if self.snap.get("auto"):
             PT.guardar_auto(montos={a: sp.value() for a, sp in self.montos_auto.items()})
             PT.log(t("Dinero por moneda del modo automático cambiado desde la aplicación."))
@@ -1591,12 +1601,13 @@ class Ventana(QMainWindow):
         if PRUEBA:
             aviso(self, t("Modo prueba"), t("En modo prueba no se cambian las estrategias del bot."))
             self._llenar_estrategias(); return
+        self._guardar_montos(silencioso=True)  # no perder montos escritos y todavía sin guardar
         activas = list(self.snap["activas"])
         nombre = M.nombre_estrategia(k)
         if not activar and activas == [k]:
             aviso(self, t("Estrategias"), t("Tiene que quedar al menos una estrategia activa."))
             self._llenar_estrategias(); return
-        asig = dict(self.snap["asignacion"] or {})
+        asig = dict(PT.asignacion_actual() or self.snap["asignacion"] or {})
         nuevos = None
         if activar:
             ya = sum(asig.get(f"{a}_{k}", 0.0) for a in K.SYMBOLS)

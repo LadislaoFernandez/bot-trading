@@ -148,8 +148,8 @@ def snapshot(carpeta=".", precios=None, status=None):
             defecto = {"equity": por_parte if s in K.STRATEGIES and st is None else 0.0, "pos": None, "pending": None}
             ss = (st or {}).get("sleeves", {}).get(f"{a}_{s}", defecto)
             usa = s in act_mon.get(a, [])
-            if not ss.get("pos") and ss["equity"] <= 1e-9 and (not usa or not asig_ef.get(f"{a}_{s}")):
-                continue
+            if not ss.get("pos") and ss["equity"] <= 1e-9 and not usa:
+                continue  # estrategia apagada y sin nada en esta moneda (las activas se muestran aunque tengan 0)
             p, px = ss.get("pos"), precios.get(a, {}).get("precio")
             fila = dict(activo=a, estrategia=_nombre(s), clave=s, activa=usa,
                         asignado=asig_ef.get(f"{a}_{s}", 0.0) if usa else 0.0,

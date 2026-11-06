@@ -34,7 +34,7 @@ python backtest.py --desde 2026-01-01 --hasta 2026-11-01
 ### Publicar una versión
 
 1. Subí `VERSION` en `config.py` y agregá la entrada en `HISTORIAL_VERSIONES` (es el texto de la publicación).
-2. `git tag vX.Y && git push origin main vX.Y`
+2. `git tag vX.Y && git push origin main vX.Y`, o en GitHub: Actions → Publicar versión → Run workflow con "publicar" tildado.
 3. GitHub Actions corre las pruebas, arma `actualizacion.zip` y el instalador `.exe` (Inno Setup, con Python 3.12 incluido) y publica la versión. Las apps instaladas la ven en la próxima búsqueda.
 
 | Archivo | Para qué |

@@ -1717,6 +1717,8 @@ class Ventana(QMainWindow):
         h = QHBoxLayout(); h.addWidget(boton(t("Guardar capital"), "primario", self._guardar_capital)); h.addStretch()
         pv.addLayout(h)
         self.lbl_cap_res = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_cap_res)
+        self.lbl_cap_aviso = lbl("", size=13, wrap=True, color=LOSS); self.lbl_cap_aviso.setVisible(False)
+        pv.addWidget(self.lbl_cap_aviso)
 
         # claves
         self.ui_claves = {}
@@ -1984,20 +1986,63 @@ class Ventana(QMainWindow):
         if PRUEBA:
             aviso(self, t("Modo prueba"), t("En modo prueba no se cambia el capital.")); return
         caps = PT.leer_ajustes().get("capital", {})
-        antes = K.INITIAL_CAPITAL
+        snap = self.snap or {}
+        efectivo = snap.get("base", K.INITIAL_CAPITAL) if snap.get("hay_estado") else K.INITIAL_CAPITAL
+        nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
+        libre = snap.get("libre", 0.0) if snap.get("hay_estado") else nuevo
+        falta = (efectivo - nuevo) - libre
+        if falta > 0.005:  # bajar más de lo que está sin asignar: hay que sacar plata de las estrategias
+            factor = max(0.0, 1 - falta / max(1e-9, efectivo - libre))
+            if not preguntar(self, t("Capital de cada modo"), t(
+                    "Para bajar el capital de {m} de {a} a {b} hay que sacar {f} de las estrategias, porque sin asignar "
+                    "hay solo {l}.", m=t(K.NOMBRE_MODO[K.MODO]), a=usd(efectivo), b=usd(nuevo), f=usd(falta),
+                    l=usd(libre)) + "\n\n" + t(
+                    "¿Bajar los montos de todas las estrategias en la misma proporción (cada uno queda en el {p} de lo que "
+                    "tiene)? Las que tienen una posición abierta lo aplican cuando la cierran. Si preferís elegir vos qué "
+                    "bajar, cancelá y cambiá los montos en Estrategias.", p=pct(factor * 100, 0)),
+                    t("Bajar montos y guardar"), t("Cancelar")):
+                self.sp_capital[K.MODO].setValue(efectivo)
+                self.lbl_cap_res.setText(t("No se cambió el capital de {m}.", m=t(K.NOMBRE_MODO[K.MODO])))
+                self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{MUTED}")
+                return
+            if snap.get("auto"):
+                PT.guardar_auto(montos={a_: int(v * factor * 100) / 100 for a_, v in (snap.get("auto_montos") or {}).items()})
+            else:
+                asig = PT.asignacion_actual() or {}
+                PT.guardar_asignacion({k_: int(v * factor * 100) / 100 for k_, v in asig.items()})
+            PT.log(t("Montos de las estrategias bajados al {p} para bajar el capital a {b} USDT.", p=pct(factor * 100, 0),
+                     b=num(nuevo)))
+            self._montos_sucios = False
         for m, sp in self.sp_capital.items():
             caps[m] = round(float(sp.value()), 2)
         PT.guardar_ajustes(capital=caps)
         PT.configurar_modo(K.MODO)
         self._pintar_modo()
-        if abs(K.INITIAL_CAPITAL - antes) >= 0.01:
+        if abs(nuevo - efectivo) >= 0.01:
             self.bot.revisar_ahora()
             QTimer.singleShot(2500, self.refrescar)
-            self.lbl_cap_res.setText(t("Capital guardado. En {m} pasa de {a} a {b}; la diferencia queda sin asignar.",
-                                       m=t(K.NOMBRE_MODO[K.MODO]), a=usd(antes), b=usd(K.INITIAL_CAPITAL)))
+            self.lbl_cap_res.setText(t("Capital guardado. En {m} pasa de {a} a {b}.", m=t(K.NOMBRE_MODO[K.MODO]),
+                                       a=usd(efectivo), b=usd(nuevo)) + " " +
+                                     (t("La diferencia queda sin asignar: repartila en Estrategias.") if nuevo > efectivo
+                                      else t("Se aplica en unos segundos.")))
         else:
             self.lbl_cap_res.setText(t("Capital guardado."))
         self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{GAIN}")
+
+    def _revisar_capital(self):
+        """Avisa si el capital guardado del modo no coincide con el que usa el bot."""
+        snap = self.snap or {}
+        if not snap.get("hay_estado") or not hasattr(self, "lbl_cap_aviso"):
+            return
+        efectivo, guardado = snap.get("base", K.INITIAL_CAPITAL), K.INITIAL_CAPITAL
+        if abs(efectivo - guardado) >= 0.01:
+            self.lbl_cap_aviso.setText(t(
+                "Atención: en {m} tenés guardado {g}, pero el bot está usando {e} porque no hay suficiente capital sin "
+                "asignar para sacar la diferencia. Tocá Guardar capital para bajar los montos de las estrategias, o "
+                "bajalos vos en Estrategias.", m=t(K.NOMBRE_MODO[K.MODO]), g=usd(guardado), e=usd(efectivo)))
+            self.lbl_cap_aviso.setVisible(True)
+        else:
+            self.lbl_cap_aviso.setVisible(False)
 
     def _cambiar_pref(self, clave, valor):
         actual = i18n.LANG if clave == "idioma" else TEMA
@@ -2313,7 +2358,7 @@ class Ventana(QMainWindow):
                 cl.setStyleSheet(f"font-size:12px; color:{color_de(ch)}")
         self._pintar_grafico()
         self._llenar_abiertas(); self._llenar_ultimas(); self._llenar_pos(); self._llenar_ops(); self._llenar_log()
-        self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos(); self._llenar_lab()
+        self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos(); self._llenar_lab(); self._revisar_capital()
         self._actualizar_bandeja(); self._notificar()
 
     def _pintar_grafico(self):

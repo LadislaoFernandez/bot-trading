@@ -183,6 +183,7 @@ def step_live(br, st):
     act, asig = PT.plan(st, velas)
     PT.aplicar_capital(st)
     PT.aplicar_asignacion(st, act, asig)
+    PT.aplicar_capital(st)
     notas = br.preparar(list(K.SYMBOLS.values()))
     for n in notas:
         PT.log(t("Aviso de Binance: {n}", n=n))

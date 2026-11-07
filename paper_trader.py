@@ -188,7 +188,15 @@ def aplicar_capital(st):
     if abs(delta) < 0.01:
         return
     if delta < 0 and -delta > st.get("libre", 0.0) + 1e-9:
+        falta = -delta - st.get("libre", 0.0)
+        if abs(st.get("capital_pendiente", 0) - K.INITIAL_CAPITAL) > 0.005:  # se anota una sola vez
+            log(t("El capital del modo quedó en {b} USDT y no en {c}: para bajarlo faltan {f} USDT sin asignar. Bajá los "
+                  "montos de las estrategias (o las que tienen una posición abierta lo liberan al cerrarla).",
+                  b=num(base_capital(st) - st.get("libre", 0.0)), c=num(K.INITIAL_CAPITAL), f=num(falta)))
+        st["capital_pendiente"] = K.INITIAL_CAPITAL
         delta = -st.get("libre", 0.0)
+    else:
+        st.pop("capital_pendiente", None)
     if abs(delta) < 0.01:
         return
     st["libre"] = st.get("libre", 0.0) + delta
@@ -300,6 +308,7 @@ def step(ex, st):
     act, asig = plan(st, {a: v[1] for a, v in velas.items()})
     aplicar_capital(st)
     aplicar_asignacion(st, act, asig)
+    aplicar_capital(st)  # si se bajaron montos para bajar el capital, recién ahora hay sin asignar para sacarlo
     prices, total, items, vela_txt = {}, 0.0, [], None
     for asset, sym in K.SYMBOLS.items():
         forming, D = velas[asset]

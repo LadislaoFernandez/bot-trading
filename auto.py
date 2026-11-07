@@ -3,7 +3,7 @@
 En cada revisión, para cada moneda:
   1. Lee el tipo de mercado (tendencia alcista, bajista o lateral) en las últimas 3 velas cerradas de 1 hora.
      Solo cambia de tipo si las 3 coinciden, para no saltar de estrategia por un movimiento de una sola vela.
-  2. Elige hasta 2 estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
+  2. Elige todas las estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
      operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias), y que no
      vengan empeorando: si en los últimos 90 días perdió más de lo que ganó, no la usa hasta que se recupere.
   3. Reparte todo el capital del bot (el del modo más lo ganado en operaciones cerradas) entre las estrategias
@@ -16,7 +16,7 @@ import config as K
 import mercado as M
 from i18n import num, t
 
-MAX_POR_MONEDA = 2
+MAX_POR_MONEDA = None  # sin tope: cada estrategia que conviene se usa en todas las monedas donde convenga
 VELAS_CONFIRMACION = 3
 
 

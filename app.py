@@ -25,11 +25,11 @@ sys.excepthook = _log_crash
 DATOS = next((x.split("=", 1)[1] for x in sys.argv if x.startswith("--datos=")), ".")
 PRUEBA = "--prueba" in sys.argv
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import (QAction, QDesktopServices, QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFrame, QInputDialog, QLineEdit, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QStackedWidget, QSystemTrayIcon, QTableWidget,
@@ -1073,8 +1073,8 @@ class Ventana(QMainWindow):
         ha.addWidget(self.sw_auto); pav.addLayout(ha)
         pav.addWidget(lbl(t("Con el piloto encendido el bot maneja todo solo, como si vos usaras la app: en cada revisión lee "
                             "el tipo de mercado de cada moneda (si se mantiene 3 horas seguidas), prende las estrategias que "
-                            "convienen (hasta 2 por moneda, que ganaron al menos 1,10 veces lo que perdieron y no vienen "
-                            "empeorando), apaga las demás y reparte todo el capital, incluidas las ganancias, entre las que "
+                            "convienen (todas las que ganaron al menos 1,10 veces lo que perdieron en ese tipo de mercado y no "
+                            "vienen empeorando, en cada moneda donde convengan), apaga las demás y reparte todo el capital, incluidas las ganancias, entre las que "
                             "prendió: más dinero a las que mejor funcionan, sin pasar del 40 % en ninguna y respetando el "
                             "mínimo de Binance. Vos solo elegís el capital del modo en Configuración. Las estrategias del "
                             "laboratorio entran cuando las agregás a tus estrategias. Con el piloto apagado, manejás vos "
@@ -2711,9 +2711,24 @@ def _esperar_instancia_anterior(nombre, segundos=40):
         time.sleep(0.5)
 
 
+
+class SinRueda(QObject):
+    """La rueda del mouse no cambia números ni listas desplegables: sigue desplazando la página.
+    Así no se modifica un monto sin querer al bajar por Configuración."""
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)):
+            p = obj.parentWidget()
+            if p is not None:
+                QApplication.sendEvent(p, ev)
+            return True
+        return False
+
+
 def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app._sin_rueda = SinRueda(app); app.installEventFilter(app._sin_rueda)
     try:
         app.setStyleSheet(QSS + qss_flechas())
     except Exception:

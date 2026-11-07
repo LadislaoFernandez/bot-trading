@@ -181,7 +181,16 @@ def step_live(br, st):
         rows = br.velas(sym)
         velas[asset] = prepare([r for r in rows if r[0] + K.BAR_MS <= ahora], K.BAR_MS, K.HTF_MS)
     PT.aplicar_capital(st)
-    act, asig = PT.plan(st, velas)
+    def minimo(k, a):  # monto que necesita la estrategia k en la moneda a para llegar al mínimo de Binance hoy
+        from engine import STRATS
+        try:
+            D, mins = velas[a], br.minimos(K.SYMBOLS[a])
+            px, atr = D["C"][-1], D["ATR"][-1]
+            return max(mins["costo"], mins["cantidad"] * px) * STRATS[k]["stop_atr"] * atr / px / K.RISK_PER_TRADE
+        except Exception:
+            return None
+
+    act, asig = PT.plan(st, velas, minimo)
     PT.aplicar_asignacion(st, act, asig)
     PT.aplicar_capital(st)
     notas = br.preparar(list(K.SYMBOLS.values()))

@@ -1,4 +1,4 @@
-"""Modo automático: el bot elige qué estrategias usar en cada moneda según el tipo de mercado.
+"""Piloto automático: el bot maneja solo las estrategias y el dinero, como si vos usaras la app.
 
 En cada revisión, para cada moneda:
   1. Lee el tipo de mercado (tendencia alcista, bajista o lateral) en las últimas 3 velas cerradas de 1 hora.
@@ -6,8 +6,9 @@ En cada revisión, para cada moneda:
   2. Elige hasta 2 estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
      operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias), y que no
      vengan empeorando: si en los últimos 90 días perdió más de lo que ganó, no la usa hasta que se recupere.
-  3. Reparte todo el capital del bot (el del modo más lo ganado en operaciones cerradas) en partes iguales entre las
-     estrategias elegidas en las tres monedas, así las ganancias se reinvierten.
+  3. Reparte todo el capital del bot (el del modo más lo ganado en operaciones cerradas) entre las estrategias
+     elegidas en las tres monedas, con más dinero para las que mejor funcionaron en ese tipo de mercado, sin pasar
+     del 40 % en ninguna y respetando el mínimo por orden de Binance. Las ganancias se reinvierten.
 Si en una moneda no conviene ninguna estrategia, no abre operaciones nuevas y su parte va a las otras monedas.
 Las posiciones abiertas de una estrategia que deja de estar elegida se siguen manejando hasta cerrarse.
 """
@@ -32,12 +33,13 @@ def elegir(historial, regimen):
     return [f["estrategia"] for f in M.recomendar(historial, regimen) if f["recomendable"]][:MAX_POR_MONEDA]
 
 
-def plan(st, Ds, historial, montos=None, log=None, reduccion=0.0):
+def plan(st, Ds, historial, montos=None, log=None, reduccion=0.0, minimo=None):
     """Ds: velas preparadas de cada moneda. Devuelve (estrategias por moneda, monto de cada parte).
 
-    Todo el capital del bot (el del modo más lo ganado o menos lo perdido en operaciones cerradas) se reparte en partes
-    iguales entre las estrategias elegidas en todas las monedas. Si en una moneda no conviene ninguna, su parte va a
-    las otras. Las partes con una posición abierta toman el monto nuevo cuando la cierran."""
+    Todo el capital del bot (el del modo más lo ganado o menos lo perdido en operaciones cerradas) se reparte entre las
+    estrategias elegidas en todas las monedas, con más dinero para las que mejor funcionan (montos_recomendados). Si en
+    una moneda no conviene ninguna, su parte va a las otras. Las partes con una posición abierta toman el monto nuevo
+    cuando la cierran. minimo(k, a): monto que necesita una estrategia para llegar al mínimo por orden de Binance."""
     au = st.setdefault("auto", {"regimen": {}, "seleccion": {}})
     act, cambios = {}, []
     for a in K.SYMBOLS:
@@ -49,20 +51,25 @@ def plan(st, Ds, historial, montos=None, log=None, reduccion=0.0):
             nombres = ", ".join(M.nombre_estrategia(s) for s in sel) if sel else t("ninguna (no abre operaciones nuevas)")
             cambios.append(t("{a} ({r}): {e}", a=a, r=t(reg).lower() if reg else "—", e=nombres))
         au["regimen"][a], au["seleccion"][a] = reg, sel
-    partes = [f"{a}_{s}" for a, sel in act.items() for s in sel]
     # reduccion: si bajaste el capital del modo, esa parte se deja sin asignar para poder sacarla
     total = max(0.0, sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0) - reduccion)
-    por = int(total / len(partes) * 100) / 100 if partes else 0.0
-    asig = {k: por for k in partes}
-    if cambios and log:
-        log(t("Modo automático, estrategias elegidas:") + " " + "; ".join(cambios) + ". " +
-            (t("Capital repartido: {x} USDT en cada una de las {n} partes.", x=num(por), n=len(partes)) if partes else
+    asig, motivos = montos_recomendados(historial, {a: au["regimen"].get(a) for a in act}, act, total, minimo)
+    for k, m in motivos.items():  # las que no llegan al mínimo de Binance no operan (su parte va a las demás)
+        if m == "minimo":
+            a_, s_ = k.split("_", 1)
+            act[a_] = [x for x in act[a_] if x != s_]
+    firma = sorted((k, round(v)) for k, v in asig.items() if v > 0)
+    if (cambios or firma != au.get("reparto")) and log:
+        log(t("Piloto automático:") + " " + ("; ".join(cambios) + ". " if cambios else "") +
+            (t("Capital repartido: {l}.", l=", ".join(f"{k} {num(v)}" for k, v in asig.items() if v > 0))
+             if any(v > 0 for v in asig.values()) else
              t("Todo el capital queda sin asignar hasta que convenga alguna estrategia.")))
+    au["reparto"] = firma
     return act, asig
 
 
 def montos_por_defecto(asignacion, activas, capital):
-    """Dinero por moneda al encender el modo automático: lo que ya tenía asignado cada moneda."""
+    """Dinero por moneda al encender el piloto automático: lo que ya tenía asignado cada moneda."""
     if asignacion:
         m = {a: sum(v for k, v in asignacion.items() if k.startswith(a + "_") and k.split("_", 1)[1] in activas)
              for a in K.SYMBOLS}
@@ -90,7 +97,7 @@ def montos_recomendados(historial, regimen_por_activo, activas, total, minimo=No
     Devuelve ({'BTC_TL': monto, ...}, {'BTC_TL': motivo}) ."""
     partes, motivos = {}, {}
     for a, reg in regimen_por_activo.items():
-        for k in activas:
+        for k in (activas.get(a, []) if isinstance(activas, dict) else activas):
             d = ((historial or {}).get("estrategias", {}).get(k) or {})
             r = d.get("regimenes", {}).get(reg, {})
             ops, pf = r.get("ops") or 0, r.get("pf")

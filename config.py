@@ -35,9 +35,16 @@ ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de c
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.7.1"
+VERSION = "1.8"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.8", "06/11/2026", [
+        "Piloto automático: prende y apaga las estrategias según el mercado de cada moneda y reparte todo el capital, "
+        "incluidas las ganancias, dando más a las que mejor funcionan (tope 40 % por parte) y respetando el mínimo de "
+        "Binance.",
+        "La sección \"Cómo se eligen las estrategias\" pasa a llamarse \"Piloto automático\"; el resumen muestra cuánto "
+        "recibe cada parte.",
+    ]),
     ("1.7.1", "06/11/2026", [
         "Al activar una estrategia sin capital sin asignar, la app avisa y ofrece repartir todo como recomienda el bot o "
         "asignarle el monto a mano.",

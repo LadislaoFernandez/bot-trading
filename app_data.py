@@ -184,6 +184,7 @@ def snapshot(carpeta=".", precios=None, status=None):
         libre=libre,
         base=base,
         asignacion=asig or {},
+        asignacion_efectiva=asig_ef if auto else {},
         frenado=(st or {}).get("frenado", False),
         rendimiento_pct=(total / base - 1) * 100 if base else 0.0,
         realizado=realizado_cap + libre - base,

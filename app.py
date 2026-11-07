@@ -222,8 +222,8 @@ GUIA = [
      "Tocá Probar conexión: muestra el saldo y el tamaño mínimo por orden de cada moneda. Después tocá Probar órdenes: "
      "compra lo mínimo de SOL, pone un stop, lo cancela y cierra. Tarda menos de un minuto.", []),
     ("Elegí el capital y las estrategias",
-     "Definí abajo el capital del modo demo. En Estrategias, elegí si el bot cambia de estrategia solo según el mercado "
-     "o si las activás vos, y cuánto dinero usa en BTC, ETH y SOL. Binance pide un tamaño mínimo por orden, así que con "
+     "Definí abajo el capital del modo demo. En Estrategias, encendé el piloto automático para que el bot maneje solo "
+     "estrategias y montos, o activalas vos y elegí cuánto dinero usa en BTC, ETH y SOL. Binance pide un tamaño mínimo por orden, así que con "
      "montos muy chicos el bot saltea señales.", []),
     ("Pasá a Demo de Binance",
      "Tocá Demo de Binance en Modo de operación. El bot revisa el mercado 20 segundos después del cierre de cada vela "
@@ -513,7 +513,7 @@ class MarketWorker(threading.Thread):
             if cambio == "empeora":
                 alertas.agregar(f"empeora_{s}_{sem}", "empeora", t("{e} viene empeorando", e=nombre), t(
                     "En los últimos {d} días perdió más de lo que ganó ({pf} en {n} operaciones), aunque en el historial "
-                    "completo funciona. El modo automático no la usa hasta que se recupere; si la tenés activada a mano, "
+                    "completo funciona. El piloto automático no la usa hasta que se recupere; si la tenés activada a mano, "
                     "fijate si conviene desactivarla.", d=M.DIAS_RECIENTE, pf=num(rec.get("pf")), n=rec.get("ops")),
                     {"estrategia": s})
             else:
@@ -1067,14 +1067,18 @@ class Ventana(QMainWindow):
 
         # modo de selección
         pa = panel(); pav = QVBoxLayout(pa); pav.setContentsMargins(18, 14, 18, 14); pav.setSpacing(8)
-        ha = QHBoxLayout(); ha.addWidget(lbl(t("Cómo se eligen las estrategias"), rol="titulo")); ha.addStretch()
-        self.sw_auto = QCheckBox(t("Automático según el mercado")); self.sw_auto.setProperty("rol", "switch")
+        ha = QHBoxLayout(); ha.addWidget(lbl(t("Piloto automático"), rol="titulo")); ha.addStretch()
+        self.sw_auto = QCheckBox(t("Piloto encendido")); self.sw_auto.setProperty("rol", "switch")
         self.sw_auto.setCursor(Qt.PointingHandCursor); self.sw_auto.clicked.connect(self._cambiar_auto)
         ha.addWidget(self.sw_auto); pav.addLayout(ha)
-        pav.addWidget(lbl(t("Con el switch encendido, el bot elige solo qué estrategias usar en cada moneda: en cada "
-                            "revisión lee el tipo de mercado (si se mantiene 3 horas seguidas) y usa hasta 2 estrategias que "
-                            "en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron. Vos solo elegís cuánto "
-                            "dinero usa en cada moneda. Con el switch apagado, activás las estrategias a mano."),
+        pav.addWidget(lbl(t("Con el piloto encendido el bot maneja todo solo, como si vos usaras la app: en cada revisión lee "
+                            "el tipo de mercado de cada moneda (si se mantiene 3 horas seguidas), prende las estrategias que "
+                            "convienen (hasta 2 por moneda, que ganaron al menos 1,10 veces lo que perdieron y no vienen "
+                            "empeorando), apaga las demás y reparte todo el capital, incluidas las ganancias, entre las que "
+                            "prendió: más dinero a las que mejor funcionan, sin pasar del 40 % en ninguna y respetando el "
+                            "mínimo de Binance. Vos solo elegís el capital del modo en Configuración. Las estrategias del "
+                            "laboratorio entran cuando las agregás a tus estrategias. Con el piloto apagado, manejás vos "
+                            "estrategias y montos."),
                           rol="muted", size=12, wrap=True))
         self.lbl_auto = lbl("", size=13, wrap=True); pav.addWidget(self.lbl_auto)
         iv.addWidget(pa)
@@ -1224,13 +1228,13 @@ class Ventana(QMainWindow):
         self.btn_hist.setEnabled(mk.hist_estado != "calculando")
         activas, auto = self.snap["activas"], self.snap.get("auto")
         self.sw_auto.blockSignals(True); self.sw_auto.setChecked(bool(auto)); self.sw_auto.blockSignals(False)
-        self.sw_auto.setText(t("Automático según el mercado") if auto else t("Manual"))
+        self.sw_auto.setText(t("Piloto encendido") if auto else t("Piloto apagado"))
         por_moneda = self.snap.get("activas_moneda") or {}
         if auto:
             ae = self.snap.get("auto_estado") or {}
             sel, regs = ae.get("seleccion", {}), ae.get("regimen", {})
             if not sel:
-                self.lbl_auto.setText(t("Modo automático encendido. El bot elige las estrategias en la próxima revisión."))
+                self.lbl_auto.setText(t("Piloto automático encendido. El bot elige estrategias y montos en la próxima revisión."))
             else:
                 partes = []
                 for a in K.SYMBOLS:
@@ -1247,7 +1251,7 @@ class Ventana(QMainWindow):
                 usan = [a for a in K.SYMBOLS if k in por_moneda.get(a, [])]
                 sw.blockSignals(True); sw.setChecked(bool(usan)); sw.blockSignals(False)
                 sw.setText(t("En uso en {m}", m=", ".join(usan)) if usan else t("Sin usar"))
-                sw.setEnabled(False); sw.setToolTip(t("En modo automático el bot elige las estrategias."))
+                sw.setEnabled(False); sw.setToolTip(t("Con el piloto automático encendido, el bot prende y apaga las estrategias."))
             else:
                 sw.blockSignals(True); sw.setChecked(k in activas); sw.blockSignals(False)
                 sw.setText(t("Activa") if k in activas else t("Inactiva"))
@@ -1278,9 +1282,10 @@ class Ventana(QMainWindow):
         self.w_botones_montos.setVisible(not auto)
         self.lbl_montos_tit.setText(t("Dinero de las estrategias"))
         self.lbl_montos_ayuda.setText(
-            t("En modo automático el bot usa todo el capital (el del modo más lo que vaya ganando) y lo reparte en partes "
-              "iguales entre las estrategias que elige en las tres monedas. Si en una moneda no conviene ninguna, su "
-              "parte va a las otras. Para cambiar cuánto usa en total, cambiá el capital del modo en Configuración.")
+            t("Con el piloto automático el bot usa todo el capital (el del modo más lo que vaya ganando) y lo reparte entre "
+              "las estrategias que prendió en las tres monedas: más a las que mejor funcionan en el mercado actual, sin "
+              "pasar del 40 % en ninguna. Una parte que no llega al mínimo de Binance se deja afuera y su dinero va a las "
+              "otras. Para cambiar cuánto usa en total, cambiá el capital del modo en Configuración.")
             if auto else
             t("Elegí en cada estrategia cuántos USDT usa en BTC, ETH y SOL. Cada monto pasa a ser el capital de esa parte "
               "y desde ahí reinvierte sus ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición "
@@ -1527,7 +1532,11 @@ class Ventana(QMainWindow):
         resto = disp - asig
         if self.snap and self.snap.get("auto"):
             partes = sum(len(v) for v in (self.snap.get("activas_moneda") or {}).values())
-            txt = (t("Usa {d}, repartido en {n} partes de {x} cada una.", d=usd(disp), n=partes, x=usd(disp / partes))
+            ef = self.snap.get("asignacion_efectiva") or {}
+            detalle = ", ".join(f"{M.nombre_estrategia(k.split('_', 1)[1])} {k.split('_', 1)[0]}: {usd(v)}"
+                                for k, v in sorted(ef.items(), key=lambda x: -x[1]) if v > 0)
+            txt = ((t("Usa {d}, repartido en {n} partes:", d=usd(disp), n=partes) + " " + detalle + "."
+                    if detalle else t("Usa {d}, repartido en {n} partes.", d=usd(disp), n=partes))
                    if partes else t("Ninguna estrategia conviene ahora: los {d} quedan sin usar hasta que cambie el "
                                     "mercado.", d=usd(disp)))
             self.lbl_montos.setText(txt); self.lbl_montos.setStyleSheet(f"font-size:13px; color:{TEXT}")
@@ -1536,8 +1545,9 @@ class Ventana(QMainWindow):
                 for a, sel in (self.snap.get("activas_moneda") or {}).items():
                     for k in sel:
                         mn = self._monto_minimo(k, a)
-                        if mn and disp / partes < mn:
-                            bajos.append((k, a, disp / partes, mn))
+                        v = ef.get(f"{a}_{k}", disp / partes)
+                        if mn and v < mn:
+                            bajos.append((k, a, v, mn))
             self._texto_minimos(bajos)
             return
         else:
@@ -1623,7 +1633,7 @@ class Ventana(QMainWindow):
             return
         if self.snap.get("auto"):
             PT.guardar_auto(montos={a: sp.value() for a, sp in self.montos_auto.items()})
-            PT.log(t("Dinero por moneda del modo automático cambiado desde la aplicación."))
+            PT.log(t("Dinero por moneda del piloto automático cambiado desde la aplicación."))
         else:
             PT.guardar_asignacion(self._montos_actuales())
             PT.log(t("Montos por estrategia y moneda cambiados desde la aplicación."))
@@ -1656,25 +1666,25 @@ class Ventana(QMainWindow):
             self._llenar_estrategias(); return
         if activar:
             if not self.mkt.historial:
-                aviso(self, t("Estrategias"), t("Para el modo automático hace falta el historial de estrategias. Esperá a que "
+                aviso(self, t("Estrategias"), t("Para el piloto automático hace falta el historial de estrategias. Esperá a que "
                                                 "termine de calcularse (lo ves arriba de la lista de estrategias)."))
                 self._llenar_estrategias(); return
-            msg = (t("¿Pasar al modo automático?") + "\n\n" +
-                   t("El bot va a elegir en cada revisión qué estrategias usar en cada moneda según el tipo de mercado, y "
-                     "va a repartir todo el capital ({d}, más lo que vaya ganando) en partes iguales entre las que elija. "
-                     "Las posiciones abiertas se siguen manejando hasta cerrarse.", d=usd(self._disponible())))
-            if not preguntar(self, t("Estrategias"), msg, t("Pasar a automático"), t("Cancelar")):
+            msg = (t("¿Encender el piloto automático?") + "\n\n" +
+                   t("El bot va a manejar todo solo: en cada revisión prende las estrategias que convienen al mercado de cada "
+                     "moneda, apaga las demás y reparte todo el capital ({d}, más lo que vaya ganando) dando más a las que "
+                     "mejor funcionan. Las posiciones abiertas se siguen manejando hasta cerrarse.", d=usd(self._disponible())))
+            if not preguntar(self, t("Estrategias"), msg, t("Encender piloto"), t("Cancelar")):
                 self._llenar_estrategias(); return
             PT.guardar_auto(activo=True)
-            PT.log(t("Modo automático de estrategias encendido desde la aplicación."))
+            PT.log(t("Piloto automático encendido desde la aplicación."))
         else:
-            if not preguntar(self, t("Estrategias"), t("¿Volver al modo manual?") + "\n\n" + t(
+            if not preguntar(self, t("Estrategias"), t("¿Apagar el piloto automático?") + "\n\n" + t(
                     "El bot vuelve a usar las estrategias que actives a mano, con los montos por estrategia y moneda que "
-                    "tenías. Las posiciones abiertas se siguen manejando hasta cerrarse."), t("Volver a manual"),
+                    "tenías. Las posiciones abiertas se siguen manejando hasta cerrarse."), t("Apagar piloto"),
                     t("Cancelar")):
                 self._llenar_estrategias(); return
             PT.guardar_auto(activo=False)
-            PT.log(t("Modo automático de estrategias apagado desde la aplicación."))
+            PT.log(t("Piloto automático apagado desde la aplicación."))
         self._montos_sucios = False
         self.bot.revisar_ahora()
         QTimer.singleShot(2500, self.refrescar)
@@ -2151,8 +2161,8 @@ class Ventana(QMainWindow):
         snap = self.snap or {}
         if snap.get("auto"):
             self._guardar_capital()
-            aviso(self, t("Capital de cada modo"), t("En modo automático el bot ya reparte solo todo el capital entre las "
-                                                     "estrategias que elige. Se guardó el capital."))
+            aviso(self, t("Capital de cada modo"), t("Con el piloto automático el bot ya reparte solo todo el capital entre "
+                                                     "las estrategias que prende. Se guardó el capital."))
             return
         hist = self.mkt.historial
         regs = {a: an["regimen"] for a, an in self.mkt.analisis.items()}

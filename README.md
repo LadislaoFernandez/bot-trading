@@ -42,7 +42,7 @@ python backtest.py --desde 2026-01-01 --hasta 2026-11-01
 | `app.py` | Aplicación de escritorio (PySide6) con el bot adentro |
 | `engine.py` | Indicadores y reglas de cada estrategia |
 | `paper_trader.py` / `live.py` | El bot: modo simulado / órdenes en Binance |
-| `auto.py` | Modo automático: elige estrategias según el mercado |
+| `auto.py` | Piloto automático: prende y apaga estrategias y reparte el capital solo |
 | `reglas.py` / `catalogo.py` | Estrategias definidas como datos (JSON) y su catálogo (`estrategias/`, `mis_estrategias/`) |
 | `laboratorio.py` | Laboratorio: busca estrategias nuevas y propone las que pasan la prueba fuera de muestra |
 | `alertas.py` | Avisos de la app (estrategias que empeoran, candidatas nuevas) |

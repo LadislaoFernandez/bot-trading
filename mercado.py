@@ -232,7 +232,7 @@ def evaluar(historial, estrategia, regimen_por_activo):
     if d.get("estado") == "empeora":
         rec = d.get("reciente", {})
         frases.insert(0, t("Viene empeorando: en los últimos {d} días perdió más de lo que ganó ({pf} en {n} "
-                           "operaciones). El modo automático no la usa hasta que se recupere.", d=DIAS_RECIENTE,
+                           "operaciones). El piloto automático no la usa hasta que se recupere.", d=DIAS_RECIENTE,
                            pf=num(rec.get("pf")), n=rec.get("ops")))
         nivel = "no"
     return nivel, " ".join(frases)

@@ -123,9 +123,9 @@ def guardar_auto(activo=None, montos=None, modo=None):
     guardar_ajustes(auto=au)
 
 
-def plan(st, Ds):
+def plan(st, Ds, minimo=None):
     """Qué estrategias operan en cada moneda y con cuánto. En modo manual: las activadas, con los montos elegidos.
-    En modo automático: las que convienen al tipo de mercado de cada moneda (ver auto.py)."""
+    Con el piloto automático: las que convienen al tipo de mercado de cada moneda (ver auto.py)."""
     manual = estrategias_activas()
     if not modo_auto():
         st.pop("auto", None)
@@ -134,9 +134,9 @@ def plan(st, Ds):
     import mercado
     hist = mercado.cargar()
     if not hist:
-        log(t("Modo automático: todavía no está calculado el historial de estrategias; se usan las estrategias activadas a mano."))
+        log(t("Piloto automático: todavía no está calculado el historial de estrategias; se usan las estrategias activadas a mano."))
         return {a: list(manual) for a in K.SYMBOLS}, None
-    return auto.plan(st, Ds, hist, log=log, reduccion=max(0.0, base_capital(st) - K.INITIAL_CAPITAL))
+    return auto.plan(st, Ds, hist, log=log, reduccion=max(0.0, base_capital(st) - K.INITIAL_CAPITAL), minimo=minimo)
 
 
 def configurar_modo(modo):

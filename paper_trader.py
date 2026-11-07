@@ -367,8 +367,8 @@ def step(ex, st):
                                 "items": items}, ensure_ascii=False) + "\n")
     else:
         log(t("Sin velas nuevas desde la última revisión: no hay nada que decidir."))
-    append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2)}],
-               ["hora", "total"])
+    append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2),
+                                "base": round(base_capital(st), 2)}], ["hora", "total", "base"])
     return total, prices
 
 

@@ -85,40 +85,59 @@ def leer_log(carpeta=".", lineas=400):
         return [l.rstrip("\n") for l in f.readlines()[-lineas:]]
 
 
+def _base_fila(r):
+    """Capital del modo anotado en la fila (las filas viejas no lo tienen; en un archivo con encabezado viejo llega
+    como columna sin nombre)."""
+    b = r.get("base") or (r.get(None) or [None])[0]
+    try:
+        return float(b) if b not in (None, "") else None
+    except ValueError:
+        return None
+
+
 def curva_capital_archivo(carpeta, archivo):
+    """[(hora, saldo, capital del modo o None)] de un archivo de saldo horario."""
     pts = []
     for r in leer_csv(archivo, carpeta):
         try:
-            pts.append((datetime.strptime(r["hora"], "%Y-%m-%d %H:%M").timestamp(), float(r["total"])))
+            pts.append((datetime.strptime(r["hora"], "%Y-%m-%d %H:%M").timestamp(), float(r["total"]), _base_fila(r)))
         except (KeyError, ValueError):
             continue
     return pts
 
 
 def meses_de(pts):
-    """Resultado de cada mes a partir de una lista (hora, saldo)."""
-    meses, prev_fin = [], None
-    for ts, v in pts:
+    """Resultado de cada mes y caída máxima total, sin contar los cambios de capital del modo como ganancia o pérdida.
+    pts: [(hora, saldo, capital del modo o None)]. Sin el capital anotado (filas viejas), un salto de más del 15 % en
+    una hora se toma como cambio de capital: el bot no puede ganar ni perder tanto en una hora."""
+    meses, indice, prev, pico, dd = [], 1.0, None, 1.0, 0.0
+    for p in pts:
+        ts, v = p[0], p[1]
+        b = p[2] if len(p) > 2 else None
+        if prev is not None and prev[1] > 0 and v > 0:
+            if b and prev[2]:
+                r = (v / b) / (prev[1] / prev[2])
+            else:
+                r = v / prev[1]
+                if abs(r - 1) > 0.15:
+                    r = 1.0
+            indice *= r
+        prev = (ts, v, b)
         m = datetime.fromtimestamp(ts).strftime("%Y-%m")
         if not meses or meses[-1]["mes"] != m:
-            meses.append(dict(mes=m, inicio=prev_fin if prev_fin is not None else v, fin=v, pico=v, dd=0.0))
+            meses.append(dict(mes=m, i0=meses[-1]["i1"] if meses else indice, i1=indice, ipico=indice, fin=v, dd=0.0))
         x = meses[-1]
-        x["fin"] = v; x["pico"] = max(x["pico"], v); x["dd"] = max(x["dd"], (1 - v / x["pico"]) * 100 if x["pico"] else 0)
-        prev_fin = v
+        x["i1"] = indice; x["fin"] = v; x["ipico"] = max(x["ipico"], indice)
+        x["dd"] = max(x["dd"], (1 - indice / x["ipico"]) * 100)
+        pico = max(pico, indice); dd = max(dd, (1 - indice / pico) * 100)
     for x in meses:
-        x["pct"] = (x["fin"] / x["inicio"] - 1) * 100 if x["inicio"] else None
-    return meses
+        x["pct"] = (x["i1"] / x["i0"] - 1) * 100 if x["i0"] else None
+    return meses, dd
 
 
 def resultados_mensuales(carpeta="."):
-    """Resultado de cada mes del modo actual (saldo al cierre, variación, caída máxima del mes) y la caída máxima total.
-    Si cambiaste el capital del modo en un mes, ese mes incluye el cambio."""
-    pts = curva_capital(carpeta, max_puntos=None)
-    pico, dd = None, 0.0
-    for _, v in pts:
-        pico = v if pico is None else max(pico, v)
-        dd = max(dd, (1 - v / pico) * 100 if pico else 0)
-    return meses_de(pts), dd
+    """Resultado de cada mes del modo actual (saldo al cierre, variación, caída máxima del mes) y la caída máxima total."""
+    return meses_de(curva_capital_archivo(carpeta, K.EQUITY_FILE))
 
 
 def curva_capital(carpeta=".", max_puntos=1500):

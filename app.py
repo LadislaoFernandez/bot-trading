@@ -2503,7 +2503,7 @@ class Ventana(QMainWindow):
         hist = self.mkt.historial or {}
         base = [x for x in K.PILOTO_BASE if x in (hist.get("estrategias") or {})]
         if len(pts) > 1 and base:
-            meses = A.meses_de(pts)
+            meses, _ = A.meses_de(pts)
             hoy = datetime.now().strftime("%Y-%m")
             comp = [x for x in meses if x["mes"] < hoy]
             if comp:

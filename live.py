@@ -371,8 +371,8 @@ def step_live(br, st):
                                ensure_ascii=False) + "\n")
     else:
         PT.log(t("Sin velas nuevas desde la última revisión: no hay nada que decidir."))
-    PT.append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2)}],
-                  ["hora", "total"])
+    PT.append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2),
+                                   "base": round(PT.base_capital(st), 2)}], ["hora", "total", "base"])
     return total, prices
 
 

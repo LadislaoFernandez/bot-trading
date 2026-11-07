@@ -801,4 +801,5 @@ EN = {
     'Dinero real: la app verifica los permisos de la clave (futuros sí, retiros no, IP restringida) y muestra una lista de control antes de activarlo.': 'Real money: the app checks the key permissions (futures yes, withdrawals no, IP restricted) and shows a checklist before turning it on.',
     'Laboratorio más exigente: las candidatas tienen que ganar en casi todos los semestres de la prueba y en los últimos 12 meses. Se sacó "Proponer para todos".': 'Stricter lab: candidates must win in almost every half-year of the test and over the last 12 months. "Propose to everyone" was removed.',
     'Se borran archivos de versiones viejas que ya no se usaban.': 'Files from old versions that were no longer used are deleted.',
+    'Resultados por mes y caída máxima: los cambios de capital del modo ya no cuentan como ganancia o pérdida.': 'Results by month and max drawdown: changes to the mode capital no longer count as profit or loss.',
 }

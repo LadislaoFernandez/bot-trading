@@ -38,9 +38,12 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.9"
+VERSION = "1.9.1"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.9.1", "07/11/2026", [
+        "Resultados por mes y caída máxima: los cambios de capital del modo ya no cuentan como ganancia o pérdida.",
+    ]),
     ("1.9", "07/11/2026", [
         "Piloto automático nuevo: usa Breakout y Resorte de tendencia en BTC, ETH y SOL, prendidas todo el tiempo, y "
         "reparte todo el capital en partes iguales una vez por día. Ya no cambia de estrategia según el tipo de mercado "

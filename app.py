@@ -469,9 +469,24 @@ class MarketWorker(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.analisis, self.actualizado, self.error = {}, None, None
+        self.minimos = {}  # moneda -> tamaño mínimo de orden en Binance (USDT), de los datos públicos del mercado
         self.historial = M.cargar()
         self.hist_estado, self.hist_prog = ("listo" if self.historial else "pendiente"), (0.0, "")
         self.recalcular, self.stop = threading.Event(), threading.Event()
+
+    def _leer_minimos(self, ex):
+        """Tamaño mínimo por orden de cada moneda: el mayor entre el mínimo en USDT y la cantidad mínima por el precio."""
+        try:
+            if not ex.markets:
+                ex.load_markets()
+            for a, sym in K.SYMBOLS.items():
+                m, px = ex.market(sym), (self.analisis.get(a) or {}).get("precio")
+                lim = m.get("limits", {})
+                costo = float((lim.get("cost") or {}).get("min") or 5.0)
+                cant = float((lim.get("amount") or {}).get("min") or 0.0)
+                self.minimos[a] = max(costo, cant * px) if px else costo
+        except Exception:
+            pass
 
     def _avisar_cambios(self, anterior, nuevo):
         """Revalidación semanal: avisa qué estrategias empezaron a empeorar o se recuperaron."""
@@ -512,6 +527,7 @@ class MarketWorker(threading.Thread):
                         rows = fetch_recent(ex, sym, K.TIMEFRAME, 1500)
                         rows = [r for r in rows if r[0] + K.BAR_MS <= time.time() * 1000]
                         self.analisis[a] = M.analisis(prepare_rows(rows))
+                    self._leer_minimos(ex)
                     self.actualizado, self.error = time.time(), None
                 except Exception as e:
                     self.error = f"{type(e).__name__}"
@@ -1502,6 +1518,14 @@ class Ventana(QMainWindow):
                    if partes else t("Ninguna estrategia conviene ahora: los {d} quedan sin usar hasta que cambie el "
                                     "mercado.", d=usd(disp)))
             self.lbl_montos.setText(txt); self.lbl_montos.setStyleSheet(f"font-size:13px; color:{TEXT}")
+            bajos = []
+            if partes:
+                for a, sel in (self.snap.get("activas_moneda") or {}).items():
+                    for k in sel:
+                        mn = self._monto_minimo(k, a)
+                        if mn and disp / partes < mn:
+                            bajos.append((k, a, disp / partes, mn))
+            self._texto_minimos(bajos)
             return
         else:
             txt = t("Disponible: {d} (capital del modo más resultado cerrado). Asignado a estrategias activas: {a}. "
@@ -1517,16 +1541,57 @@ class Ventana(QMainWindow):
         self.lbl_montos.setText(txt); self.lbl_montos.setStyleSheet(f"font-size:13px; color:{col}")
         self.btn_guardar_montos.setEnabled(self._montos_sucios and resto >= -0.005)
         self.btn_deshacer_montos.setEnabled(self._montos_sucios)
-        mins = getattr(self, "_minimos", None)
+        self._texto_minimos()
+
+    def _texto_minimos(self, partes_auto=None):
         if K.MODO == "simulado":
             self.lbl_minimos.setText(t("En modo simulado no hay tamaño mínimo por orden. En Binance sí: con montos muy "
                                        "chicos el bot saltea las señales que no llegan al mínimo."))
+            self.lbl_minimos.setStyleSheet(f"font-size:12px; color:{MUTED}")
+            return
+        mins = self.mkt.minimos
+        if not mins:
+            self.lbl_minimos.setText(t("Leyendo de Binance el tamaño mínimo por orden de cada moneda…"))
+            return
+        txt = t("Binance pide un tamaño mínimo por orden: {m}. El tamaño de cada orden es el monto de la estrategia por el "
+                "riesgo ({r}) dividido la distancia al stop, así que el monto mínimo cambia con la volatilidad. Pasá el "
+                "mouse por cada monto para ver el mínimo de hoy.", m=", ".join(f"{a} {usd(c, 0)}" for a, c in mins.items()),
+                r=pct(K.RISK_PER_TRADE * 100, 0))
+        bajos = self._marcar_minimos() if partes_auto is None else partes_auto
+        if bajos:
+            txt += " " + t("Hoy no llegan al mínimo, y el bot va a saltear sus señales: {l}.", l="; ".join(
+                f"{a} {M.nombre_estrategia(k)} ({usd(v, 0)}, {t('mínimo')} {usd(mn, 0)})" for k, a, v, mn in bajos))
+            self.lbl_minimos.setStyleSheet(f"font-size:12px; color:{LOSS}")
         else:
-            self.lbl_minimos.setText(t("Binance pide un tamaño mínimo por orden (por ejemplo BTC 50, ETH 20 y SOL 5 USDT en "
-                                       "la demo). Con 3 % de riesgo, cada orden suele ser de 1 a 2 veces el monto de la "
-                                       "parte: con montos muy chicos el bot saltea señales.") if not mins else
-                                     t("Tamaño mínimo por orden en Binance: {m}. Con montos muy chicos el bot saltea "
-                                       "señales.", m=", ".join(f"{a} {usd(c, 0)}" for a, c in mins.items())))
+            self.lbl_minimos.setStyleSheet(f"font-size:12px; color:{MUTED}")
+        self.lbl_minimos.setText(txt)
+
+    def _monto_minimo(self, k, a):
+        """Monto aproximado que necesita una estrategia en una moneda para que su orden llegue al mínimo de Binance.
+        El tamaño de cada orden es monto × riesgo ÷ distancia al stop, y la distancia depende de la volatilidad actual."""
+        if K.MODO == "simulado":
+            return None
+        from engine import STRATS
+        mn, an = self.mkt.minimos.get(a), self.mkt.analisis.get(a)
+        if not mn or not an or not an.get("atr_pct") or k not in STRATS:
+            return None
+        return mn * STRATS[k]["stop_atr"] * an["atr_pct"] / K.RISK_PER_TRADE
+
+    def _marcar_minimos(self):
+        """Marca en rojo los montos que hoy no llegan al mínimo de Binance. Devuelve la lista de los que no llegan."""
+        bajos = []
+        activas = (self.snap or {}).get("activas", [])
+        for (k, a), sp in self.montos.items():
+            mn = self._monto_minimo(k, a) if k in activas else None
+            if mn is not None and 0 < sp.value() < mn:
+                sp.setStyleSheet(f"border: 1px solid {LOSS}; border-radius: 8px; background: {PANEL2};")
+                sp.setToolTip(t("Con la volatilidad de hoy, {a} necesita al menos unos {m} para que la orden llegue al "
+                                "mínimo de Binance.", a=a, m=usd(mn, 0)))
+                bajos.append((k, a, sp.value(), mn))
+            else:
+                sp.setStyleSheet("")
+                sp.setToolTip(t("Mínimo aproximado hoy: {m}", m=usd(mn, 0)) if mn else "")
+        return bajos
 
     def _montos_actuales(self):
         return {f"{a}_{k}": round(sp.value(), 2) for (k, a), sp in self.montos.items()}

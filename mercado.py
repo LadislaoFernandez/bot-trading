@@ -72,7 +72,7 @@ def analisis(D):
         resumen = t("El mercado baja con fuerza (ADX {a}). La media de 50 horas está por debajo de la de 200.", a=adx)
     resumen += " " + t("Volatilidad {v}: {r} veces lo habitual del último mes.", v=t(vol).lower(), r=num(ratio, 2))
     return dict(regimen=reg, volatilidad=vol, vol_ratio=ratio, adx=D["ADX"][i], rsi=D["RSI14"][i],
-                tendencia_4h=tend4h, pos_rango48=pos48, var24=var24, precio=C, resumen=resumen,
+                tendencia_4h=tend4h, pos_rango48=pos48, var24=var24, precio=C, resumen=resumen, atr_pct=D["ATR"][i] / C,
                 hora=D["T"][i] / 1000)
 
 

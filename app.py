@@ -29,7 +29,7 @@ from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import (QAction, QDesktopServices, QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap)
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFrame, QInputDialog, QLineEdit, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QStackedWidget, QSystemTrayIcon, QTableWidget,
@@ -2719,8 +2719,10 @@ class SinRueda(QObject):
     def eventFilter(self, obj, ev):
         if ev.type() == QEvent.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)):
             p = obj.parentWidget()
-            if p is not None:
-                QApplication.sendEvent(p, ev)
+            while p is not None and not isinstance(p, QAbstractScrollArea):
+                p = p.parentWidget()
+            if p is not None:  # Qt no pasa la rueda al contenedor por su cuenta: se la damos al área que desplaza
+                QApplication.sendEvent(p.viewport(), ev)
             return True
         return False
 

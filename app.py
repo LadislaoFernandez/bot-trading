@@ -1993,12 +1993,16 @@ class Ventana(QMainWindow):
         snap = self.snap or {}
         efectivo = snap.get("base", K.INITIAL_CAPITAL) if snap.get("hay_estado") else K.INITIAL_CAPITAL
         nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
-        libre = snap.get("libre", 0.0) if snap.get("hay_estado") else nuevo
-        falta = (efectivo - nuevo) - libre
+        # lo que van a usar las estrategias activas según los montos guardados (aunque el bot todavía no los aplicó)
+        activas = snap.get("activas") or []
+        comprometido = sum(v for k_, v in (PT.asignacion_actual() or {}).items() if k_.split("_", 1)[1] in activas)
+        resultado = snap.get("realizado", 0.0) if snap.get("hay_estado") else 0.0  # ganado o perdido ya cerrado
+        falta = comprometido - (nuevo + max(0.0, resultado)) if snap.get("hay_estado") else 0.0
         if falta > 0.005 and snap.get("auto"):
             falta = 0  # en automático el bot saca la diferencia solo, de las partes que no tienen posición abierta
-        if falta > 0.005:  # bajar más de lo que está sin asignar: hay que sacar plata de las estrategias
-            factor = max(0.0, 1 - falta / max(1e-9, efectivo - libre))
+        if falta > 0.005:  # los montos guardados suman más que el capital nuevo: hay que bajarlos
+            libre = max(0.0, nuevo + max(0.0, resultado) - comprometido)
+            factor = max(0.0, 1 - falta / max(1e-9, comprometido))
             if not preguntar(self, t("Capital de cada modo"), t(
                     "Para bajar el capital de {m} de {a} a {b} hay que sacar {f} de las estrategias, porque sin asignar "
                     "hay solo {l}.", m=t(K.NOMBRE_MODO[K.MODO]), a=usd(efectivo), b=usd(nuevo), f=usd(falta),

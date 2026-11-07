@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.10"
+VERSION = "1.10.1"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.10.1", "07/11/2026", [
+        "Inicio con Windows: la app arranca directamente con el Python que trae el instalador. Antes, sin un Python "
+        "instalado en el sistema, se abría la carpeta del bot en vez de la app.",
+    ]),
     ("1.10", "07/11/2026", [
         "Laboratorio nuevo: busca una vez por semana solo con datos hasta hace 12 meses; las 5 mejores rinden un examen "
         "final con los últimos 12 meses, una sola vez cada una.",

@@ -1105,9 +1105,11 @@ class Ventana(QMainWindow):
                             "en BTC, ETH y SOL, prendidas todo el tiempo, y una vez por día reparte todo el capital "
                             "(incluidas las ganancias) en partes iguales, respetando el mínimo de Binance. Una vez por mes "
                             "revisa que cada una haya ganado plata en los últimos 12 meses: si una falla 3 revisiones "
-                            "seguidas, le deja de dar dinero y te avisa. No cambia de estrategia según el tipo de mercado: "
-                            "en las simulaciones de 2023 a 2026 eso perdía contra dejarlas fijas. Con el piloto apagado "
-                            "manejás vos estrategias y montos."), rol="muted", size=12, wrap=True))
+                            "seguidas, le deja de dar dinero y te avisa. Si el laboratorio encuentra una estrategia que les gana "
+                            "a Breakout y Resorte durante 3 meses de observación sin dinero, el piloto la suma con una parte "
+                            "igual. No cambia de estrategia según el tipo de mercado: en las simulaciones de 2023 a 2026 eso "
+                            "perdía contra dejarlas fijas. Con el piloto apagado manejás vos los montos."),
+                          rol="muted", size=12, wrap=True))
         self.lbl_auto = lbl("", size=13, weight=600, wrap=True); pav.addWidget(self.lbl_auto)
         self.w_auto_info = QWidget(); ga = QGridLayout(self.w_auto_info); ga.setContentsMargins(0, 2, 0, 2)
         ga.setHorizontalSpacing(18); ga.setVerticalSpacing(6); self.auto_info = {}
@@ -1166,8 +1168,10 @@ class Ventana(QMainWindow):
                 import catalogo
                 dd = catalogo.DEFINICIONES[k]
                 desc = catalogo.descripcion(dd, i18n.LANG)
-                origen = t("Agregada por vos desde el laboratorio: el piloto automático no la usa, la podés activar a "
-                           "mano.") if dd.get("_origen") == "mis_estrategias" else t("Estrategia del catálogo de la app.")
+                origen = t("Encontrada por el laboratorio: entró al piloto automático después de ganarles a Breakout y "
+                           "Resorte durante sus 3 meses de observación.") if dd.get("piloto_desde") else (
+                    t("Del laboratorio anterior.") if dd.get("_origen") == "mis_estrategias" else
+                    t("Estrategia del catálogo de la app."))
                 desc += " " + origen
             pv.addWidget(lbl(desc, size=13, wrap=True))
             porque = lbl("", size=13, wrap=True); pv.addWidget(porque)
@@ -1193,8 +1197,10 @@ class Ventana(QMainWindow):
                 hq.addWidget(boton(t("Quitar de mis estrategias"), "peligro", lambda _=False, k=k: self._quitar_propia(k)))
                 pv.addLayout(hq)
             self.estr_ui[k] = (sw, rec, porque, celdas); iv.addWidget(p)
-        iv.addWidget(lbl(t("Reversión a la media y RSI(2) se retiraron: perdieron plata todos los años desde 2023. Si tenían "
-                           "una posición abierta, el bot la maneja hasta cerrarla."), rol="muted", size=12, wrap=True))
+        iv.addWidget(lbl(t("Reversión a la media, RSI(2), Cruce de medias y Supertrend se retiraron: en las simulaciones de "
+                           "2023 a 2026 ninguna le sumaba a Breakout y Resorte de tendencia (cuando ellas pierden, las demás "
+                           "también). Si tenían una posición abierta, el bot la maneja hasta cerrarla."),
+                         rol="muted", size=12, wrap=True))
         iv.addSpacing(6)
 
         # laboratorio
@@ -1204,11 +1210,12 @@ class Ventana(QMainWindow):
         self.sw_lab.clicked.connect(self._cambiar_lab); hl_.addWidget(self.sw_lab); plv.addLayout(hl_)
         plv.addWidget(lbl(t(
             "Busca estrategias nuevas combinando las piezas que ya usa el bot (filtros de tendencia, disparos de entrada, "
-            "salidas y stops). Las elige con velas de 2022 a 2024 y las prueba con velas de 2025 a hoy, que no usó para "
-            "elegirlas: solo propone las que ganan en esa prueba en al menos 2 de las 3 monedas, en cada semestre "
-            "completo menos uno como mucho, y en los últimos 12 meses. Corre en segundo plano cada 6 horas durante 20 "
-            "minutos, con prioridad baja. Las candidatas nunca operan solas: si agregás una, la podés activar a mano y en "
-            "su tarjeta ves cómo le va desde que se descubrió. El piloto automático no las usa."),
+            "salidas y stops). Una vez por semana corre 30 minutos en segundo plano, con prioridad baja. Busca solo con "
+            "velas desde 2022 hasta hace 12 meses; las 5 mejores rinden un examen final con los últimos 12 meses, que no "
+            "miró al buscar, una sola vez cada una. La que aprueba queda 3 meses en observación sin dinero: el "
+            "laboratorio calcula cada semana cómo le va y la compara con Breakout y Resorte de tendencia. Si al terminar "
+            "ganó y le fue al menos tan bien como ellas, entra sola al piloto automático con una parte igual; si no, se "
+            "descarta. Te avisa en los dos casos. Después, como las demás, pasa la revisión mensual del piloto."),
             rol="muted", size=12, wrap=True))
         hb_ = QHBoxLayout(); hb_.setSpacing(8)
         self.lbl_lab = lbl("", size=13, wrap=True); hb_.addWidget(self.lbl_lab, 1)
@@ -1281,11 +1288,13 @@ class Ventana(QMainWindow):
         self.sw_auto.setText(t("Piloto encendido") if auto else t("Piloto apagado"))
         por_moneda = self.snap.get("activas_moneda") or {}
         au = self.snap.get("auto_estado") or {}
+        import auto as AU2
         base = [s for s in K.PILOTO_BASE if s in PT.NOMBRES]
+        base_piloto = AU2.base()
         self.w_auto_info.setVisible(bool(auto))
         self.pan_montos.setVisible(not auto)
         if auto:
-            dentro = au.get("dentro") if au.get("dentro") is not None else base
+            dentro = au.get("dentro") if au.get("dentro") is not None else base_piloto
             asig, afuera = au.get("asig") or {}, au.get("afuera") or []
             if "dentro" not in au:
                 self.lbl_auto.setText(t("Piloto encendido. Arma la cartera en la próxima revisión del bot (en segundos)."))
@@ -1311,7 +1320,7 @@ class Ventana(QMainWindow):
                                              "ganancias, en partes iguales.", f=f"{px:%d/%m}") if px else t("En la próxima revisión."))
             lineas = []
             rev = au.get("revision") or {}
-            for s in base:
+            for s in base_piloto:
                 r = rev.get(s) or {}
                 ok, sem = (r.get("califica"), r.get("semestres") or []) if r else M.califica(hist, s)
                 ua = M.ultimo_anio(sem)
@@ -1362,10 +1371,10 @@ class Ventana(QMainWindow):
             dd = catalogo.DEFINICIONES.get(k, {})
             if k in base:
                 chip(rec, t("Base del piloto"), ACCENT)
-            elif dd.get("_origen") == "mis_estrategias":
-                chip(rec, t("Del laboratorio"), AMBER)
+            elif k in base_piloto:
+                chip(rec, t("En el piloto (del laboratorio)"), ACCENT)
             else:
-                chip(rec, t("Opcional"), MUTED)
+                chip(rec, t("Del laboratorio"), AMBER)
             d = (hist or {}).get("estrategias", {}).get(k)
             if not d or "anios" not in d:
                 porque.setText(t("Los resultados aparecen cuando termine de calcularse el historial."))
@@ -1438,7 +1447,7 @@ class Ventana(QMainWindow):
         self._llenar_lab()
 
     def _lab_tick(self):
-        """Lanza el laboratorio cada 6 horas si está activo."""
+        """Lanza el laboratorio una vez por semana si está activo."""
         if PRUEBA or not self._lab_ajustes().get("activo"):
             return
         st = self._lab_estado()
@@ -1446,7 +1455,7 @@ class Ventana(QMainWindow):
             return
         fallo = str(st.get("mensaje", "")).startswith("error") or (st and not st.get("fin"))
         ultimo = max(st.get("fin", 0), st.get("latido", 0), getattr(self, "_lab_lanzado", 0))
-        espera = 3600 if fallo else 6 * 3600  # si la última búsqueda falló, reintenta en 1 hora
+        espera = 3600 if fallo else 7 * 86400  # si la última búsqueda falló, reintenta en 1 hora
         if time.time() - ultimo >= espera:
             self._lanzar_lab()
 
@@ -1458,10 +1467,10 @@ class Ventana(QMainWindow):
         flags = 0x08000000 if os.name == "nt" else 0  # sin ventana
         try:
             with open("laboratorio.log", "a", encoding="utf-8") as out:
-                subprocess.Popen([sys.executable, os.path.abspath("laboratorio.py"), "--minutos", "20"], cwd=os.getcwd(),
+                subprocess.Popen([sys.executable, os.path.abspath("laboratorio.py"), "--minutos", "30"], cwd=os.getcwd(),
                                  stdout=out, stderr=out, creationflags=flags)
             self._lab_lanzado = time.time()
-            PT.log(t("Laboratorio de estrategias: búsqueda iniciada (20 minutos)."))
+            PT.log(t("Laboratorio de estrategias: búsqueda iniciada (30 minutos)."))
         except OSError as e:
             aviso(self, t("Laboratorio de estrategias"), t("No se pudo iniciar:") + f" {e}", True)
         self._llenar_lab()
@@ -1473,7 +1482,9 @@ class Ventana(QMainWindow):
                 if fn.startswith("LAB_") and fn.endswith(".json"):
                     try:
                         with open(os.path.join("candidatas", fn), encoding="utf-8") as f:
-                            out.append(json.load(f))
+                            d = json.load(f)
+                        if d.get("examen"):  # las del laboratorio anterior no se muestran (el laboratorio las descarta)
+                            out.append(d)
                     except (OSError, ValueError):
                         pass
         return sorted(out, key=lambda d: -d.get("numero", 0))
@@ -1493,19 +1504,23 @@ class Ventana(QMainWindow):
             if str(st.get("mensaje", "")).startswith("error"):
                 txt += " " + t("Terminó con un error:") + " " + st["mensaje"][7:150]
             elif st.get("finalistas") and not st.get("nuevas"):
-                txt += " " + t("Ninguna de las mejores pasó la prueba con datos nuevos.")
+                txt += " " + t("Ninguna de las {n} finalistas aprobó el examen final.", n=st.get("finalistas"))
+            prox = st["fin"] + 7 * 86400
+            if aj.get("activo"):
+                txt += " " + t("Próxima búsqueda: {f}.", f=f"{datetime.fromtimestamp(prox):%d/%m}")
         else:
             txt = t("Todavía no buscó estrategias.") if aj.get("activo") else t("Apagado. Encendelo para que busque.")
         self.lbl_lab.setText(txt)
+        self._revisar_ascendidas()
         cands = self._candidatas()
-        firma = tuple(d["id"] for d in cands) + (i18n.LANG,)
+        firma = tuple((d["id"], (d.get("observacion") or {}).get("actualizado")) for d in cands) + (i18n.LANG,)
         if firma == self._cand_firma:
             return
         self._cand_firma = firma
         self._vaciar(self.box_cand)
         if not cands:
-            self.box_cand.addWidget(lbl(t("No hay candidatas por ahora. Es normal: la gran mayoría de las combinaciones no "
-                                          "pasa las pruebas."), rol="muted", size=12, wrap=True))
+            self.box_cand.addWidget(lbl(t("No hay estrategias en observación. Es normal: la gran mayoría de las "
+                                          "combinaciones no aprueba el examen final."), rol="muted", size=12, wrap=True))
             return
         import catalogo
         import reglas
@@ -1513,39 +1528,55 @@ class Ventana(QMainWindow):
             c = QFrame(); c.setObjectName("actualizacion"); cv = QVBoxLayout(c); cv.setContentsMargins(14, 12, 14, 12)
             cv.setSpacing(6)
             top = QHBoxLayout(); top.addWidget(lbl(catalogo.nombre(d, i18n.LANG), size=14, weight=600)); ch = lbl("", rol="chip")
-            chip(ch, t("Candidata"), ACCENT); top.addWidget(ch); top.addStretch()
-            top.addWidget(lbl(t("Encontrada el {f}", f=d.get("creada", "")), rol="muted", size=12)); cv.addLayout(top)
+            chip(ch, t("En observación"), ACCENT); top.addWidget(ch); top.addStretch()
+            top.addWidget(lbl(t("Aprobó el examen el {f}", f=d.get("creada", "")), rol="muted", size=12)); cv.addLayout(top)
             cv.addWidget(lbl(reglas.describir(d), size=13, wrap=True))
             v = d.get("validacion", {})
             en, pr = v.get("entreno", {}), v.get("prueba", {})
             mon = ", ".join(f"{a} {pct(m['resultado'], 1, True)}" for a, m in v.get("por_moneda", {}).items())
-            cv.addWidget(lbl(t("Entrenamiento (2022 a 2024): ganó {pf1} veces lo que perdió, en {n1} operaciones. Prueba con "
-                               "datos que no usó para crearla (2025 a hoy): {pf2} veces, en {n2} operaciones. Resultado de "
-                               "la prueba por moneda (sumando cada operación): {m}.", pf1=num(en.get("pf")),
-                               n1=en.get("ops"), pf2=num(pr.get("pf")), n2=pr.get("ops"), m=mon), size=12, wrap=True,
-                             color=GAIN))
+            if pr.get("examen"):
+                txt_v = t("Búsqueda (2022 hasta hace 12 meses): ganó {pf1} veces lo que perdió, en {n1} operaciones. Examen "
+                          "final con los últimos 12 meses, que no miró al buscarla: {pf2} veces, en {n2} operaciones. "
+                          "Examen por moneda: {m}.", pf1=num(en.get("pf")), n1=en.get("ops"), pf2=num(pr.get("pf")),
+                          n2=pr.get("ops"), m=mon)
+            else:
+                txt_v = t("Búsqueda: ganó {pf1} veces lo que perdió, en {n1} operaciones. Prueba: {pf2} veces, en {n2} "
+                          "operaciones.", pf1=num(en.get("pf")), n1=en.get("ops"), pf2=num(pr.get("pf")), n2=pr.get("ops"))
+            cv.addWidget(lbl(txt_v, size=12, wrap=True, color=MUTED))
+            ob = d.get("observacion") or {}
+            if ob.get("desde"):
+                fin = ob["desde"] / 1000 + ob.get("dias", 90) * 86400
+                faltan = max(0, int((fin - time.time()) / 86400) + 1)
+                if ob.get("ella") is None:
+                    txt_o = t("Observación sin dinero hasta el {f} (faltan {n} días). El resultado aparece en la próxima "
+                              "búsqueda del laboratorio.", f=f"{datetime.fromtimestamp(fin):%d/%m/%Y}", n=faltan)
+                    col = TEXT
+                else:
+                    txt_o = t("Observación sin dinero hasta el {f} (faltan {n} días). Hasta ahora: ella {a}, Breakout y "
+                              "Resorte {b}. Para entrar al piloto tiene que ganar y que le vaya al menos tan bien como "
+                              "ellas.", f=f"{datetime.fromtimestamp(fin):%d/%m/%Y}", n=faltan, a=pct(ob["ella"], 1, True),
+                              b=pct(ob["base"], 1, True))
+                    col = GAIN if (ob["ella"] > 0 and ob["ella"] >= ob["base"]) else AMBER
+                cv.addWidget(lbl(txt_o, size=12, wrap=True, color=col))
             hb = QHBoxLayout(); hb.setSpacing(8)
-            hb.addWidget(boton(t("Agregar a mis estrategias"), "primario", lambda _=False, d=d: self._agregar_candidata(d)))
-            hb.addWidget(boton(t("Descartar"), accion=lambda _=False, d=d: self._descartar_candidata(d)))
+            hb.addWidget(boton(t("Dejar de observarla"), accion=lambda _=False, d=d: self._descartar_candidata(d)))
             hb.addStretch()
             cv.addLayout(hb)
             self.box_cand.addWidget(c)
 
-    def _agregar_candidata(self, d):
+    def _revisar_ascendidas(self):
+        """Si el laboratorio subió una estrategia al piloto (la guardó en mis_estrategias), la app se reinicia para
+        sumarla. Solo una vez por estrategia, y nunca en modo prueba."""
         import catalogo
-        if not preguntar(self, t("Laboratorio de estrategias"), t(
-                "¿Agregar {e} a tus estrategias?", e=catalogo.nombre(d, i18n.LANG)) + "\n\n" + t(
-                "Aparece en la lista de estrategias como cualquier otra, apagada. Antes de activarla conviene dejarla "
-                "unos días en modo simulado o demo. Para que aparezca, la app se reinicia."),
-                t("Agregar y reiniciar"), t("Cancelar")):
+        if PRUEBA or getattr(self, "_reinicio_lab", False) or not os.path.isdir("mis_estrategias"):
             return
-        catalogo.guardar_propia(d)
-        try:
-            os.remove(os.path.join("candidatas", d["id"] + ".json"))
-        except OSError:
-            pass
-        PT.log(t("Estrategia {e} agregada desde el laboratorio.", e=d["id"]))
-        self.reiniciar_app()
+        nuevas = [fn[:-5] for fn in os.listdir("mis_estrategias")
+                  if fn.endswith(".json") and fn[:-5] not in catalogo.DEFINICIONES]
+        if nuevas:
+            self._reinicio_lab = True
+            PT.log(t("Laboratorio de estrategias: {e} entra al piloto automático. La app se reinicia para sumarla.",
+                     e=", ".join(nuevas)))
+            QTimer.singleShot(1500, self.reiniciar_app)
 
     def _descartar_candidata(self, d):
         os.makedirs(os.path.join("candidatas", "descartadas"), exist_ok=True)
@@ -1560,10 +1591,13 @@ class Ventana(QMainWindow):
         import catalogo
         if k in (self.snap or {}).get("activas", []) or any(f["clave"] == k and f["lado"] for f in (self.snap or {}).get("posiciones", [])):
             aviso(self, t("Estrategias"), t("Primero desactivala y esperá a que cierre sus posiciones.")); return
-        if not preguntar(self, t("Estrategias"), t("¿Quitar {e} de tus estrategias? La app se reinicia.",
+        if not preguntar(self, t("Estrategias"), t("¿Quitar {e} de tus estrategias? Si estaba en el piloto automático, "
+                                                    "sale de él. La app se reinicia.",
                                                     e=M.nombre_estrategia(k)), t("Quitar y reiniciar"), t("Cancelar")):
             return
         catalogo.quitar_propia(k)
+        extra = [x for x in PT.leer_ajustes().get("piloto_extra", []) or [] if x != k]
+        PT.guardar_ajustes(piloto_extra=extra)
         self.reiniciar_app()
 
     # ---------- avisos (alertas.py)
@@ -2856,6 +2890,10 @@ def _limpiar_obsoletos():
 
 def main():
     _limpiar_obsoletos()
+    import catalogo
+    if catalogo.RETIRADAS_AHORA:
+        PT.log(t("Estrategias del laboratorio anterior pasadas a respaldos/estrategias_viejas: {e}. El laboratorio nuevo "
+                 "busca con examen final.", e=", ".join(catalogo.RETIRADAS_AHORA)))
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app._sin_rueda = SinRueda(app); app.installEventFilter(app._sin_rueda)

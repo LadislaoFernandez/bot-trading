@@ -1,6 +1,6 @@
 # Bot de trading
 
-Bot de trading para **Binance Futuros (USDⓈ-M)** con aplicación de escritorio para Windows. Opera BTC, ETH y SOL en velas de 1 hora. Con el **piloto automático** usa Breakout y Resorte de tendencia en las tres monedas, reparte todo el capital en partes iguales una vez por día y revisa una vez por mes que cada estrategia siga ganando. Con el piloto apagado se eligen a mano estrategias (también Cruce de medias, Supertrend y las del laboratorio) y montos. Un laboratorio busca estrategias nuevas en segundo plano y propone las que pasan una prueba con datos que no usó para crearlas.
+Bot de trading para **Binance Futuros (USDⓈ-M)** con aplicación de escritorio para Windows. Opera BTC, ETH y SOL en velas de 1 hora. Con el **piloto automático** usa Breakout y Resorte de tendencia en las tres monedas, reparte todo el capital en partes iguales una vez por día y revisa una vez por mes que cada estrategia siga ganando. Con el piloto apagado se eligen los montos a mano. Un laboratorio busca estrategias nuevas una vez por semana: busca con datos hasta hace 12 meses, las mejores rinden un examen final con los últimos 12 meses, y la que aprueba queda 3 meses en observación sin dinero; si les gana a Breakout y Resorte, entra sola al piloto.
 
 En simulaciones con el código del bot, de enero 2023 a octubre 2026 y con 300 USDT, el piloto terminó en unos 1.500 USDT con comisión de orden límite y en unos 740 USDT con comisión a mercado; la caída máxima fue de 28 % a 36 %.
 

@@ -14,6 +14,47 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 CARPETAS = ("estrategias", "mis_estrategias")
 DEFINICIONES = {}  # id -> definición
 PROBLEMAS = {}     # archivo -> problemas encontrados
+RETIRADAS_AHORA = []  # estrategias del laboratorio anterior que se pasaron a respaldos al cargar (la app lo anota)
+
+
+def _con_posicion(id_):
+    """¿Alguna parte de esta estrategia tiene una posición abierta u orden pendiente, en cualquier modo?"""
+    for f in os.listdir(RAIZ):
+        if f.startswith("estado_") and f.endswith(".json"):
+            try:
+                with open(os.path.join(RAIZ, f), encoding="utf-8") as fh:
+                    st = json.load(fh)
+            except (OSError, ValueError):
+                return True  # si no se puede leer, mejor no tocar nada
+            for k, v in (st.get("sleeves") or {}).items():
+                if k.split("_", 1)[-1] == id_ and (v.get("pos") or v.get("pending")):
+                    return True
+    return False
+
+
+def _retirar_laboratorio_viejo():
+    """Las estrategias que encontró el laboratorio antes de la versión 1.10 (sin examen final) pasan a
+    respaldos/estrategias_viejas. Las que tienen una posición abierta se dejan hasta que la cierren."""
+    p = os.path.join(RAIZ, "mis_estrategias")
+    if not os.path.isdir(p):
+        return
+    for f in sorted(os.listdir(p)):
+        if not f.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(p, f), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if d.get("origen") != "laboratorio" or d.get("examen") or _con_posicion(d.get("id", f[:-5])):
+            continue
+        destino = os.path.join(RAIZ, "respaldos", "estrategias_viejas")
+        os.makedirs(destino, exist_ok=True)
+        try:
+            os.replace(os.path.join(p, f), os.path.join(destino, f))
+            RETIRADAS_AHORA.append(d.get("nombre", f[:-5]))
+        except OSError:
+            pass
 
 
 def _leer(carpeta):
@@ -42,6 +83,10 @@ def _leer(carpeta):
 def cargar(strats, nombres):
     """Registra las estrategias del catálogo en el motor. Las de código (las 6 originales) no se pisan."""
     DEFINICIONES.clear(); PROBLEMAS.clear()
+    try:
+        _retirar_laboratorio_viejo()
+    except OSError:
+        pass
     for carpeta in CARPETAS:
         for d in _leer(carpeta):
             if d["id"] in strats and "datos" not in strats[d["id"]]:

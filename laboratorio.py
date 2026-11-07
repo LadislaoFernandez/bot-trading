@@ -1,20 +1,22 @@
-"""Laboratorio de estrategias: busca estrategias nuevas combinando las piezas que ya usa el bot, y propone solo las
-que pasan pruebas exigentes. Corre en un proceso aparte, con prioridad baja, para no frenar la app ni el bot.
+"""Laboratorio de estrategias: busca estrategias nuevas combinando las piezas que ya usa el bot. Corre en un proceso
+aparte, con prioridad baja, una vez por semana.
 
-    python laboratorio.py --minutos 20
+    python laboratorio.py --minutos 30
 
 Cómo decide (para no engañarse con estrategias que solo "funcionaron de casualidad"):
   1. Arma combinaciones al azar de un filtro de tendencia o de mercado, un disparo de entrada, a lo sumo una condición
-     extra, una salida y un stop. Después mejora las mejores cambiando de a una pieza.
-  2. Las elige SOLO con velas de 2022 a 2024 (entrenamiento): al menos 60 operaciones sumando BTC, ETH y SOL, y ganar al
-     menos 1,2 veces lo que pierde.
-  3. A las 5 mejores de cada corrida las prueba con velas de 2025 en adelante, que nunca usó para elegirlas: al menos 30
-     operaciones, ganar 1,15 veces lo que pierde, salir positiva en al menos 2 de las 3 monedas y en 3 de cada 4 años,
-     y con el capital de la estrategia: ganar en cada semestre completo de la prueba menos uno como mucho y en los
-     últimos 12 meses (lo mismo que mira la revisión mensual del piloto).
-  4. Descarta las que son iguales a una estrategia que ya existe o que ya se probó.
-Las que pasan quedan como "candidatas" y la app avisa. Nunca operan solas: vos decidís si agregarlas, y una vez
-agregadas se prueban primero como cualquier otra (simulado o demo).
+     extra, una salida y un stop, y mejora las mejores cambiando de a una pieza.
+  2. Las elige SOLO con velas desde 2022 hasta hace 12 meses: al menos 60 operaciones sumando BTC, ETH y SOL, y ganar al
+     menos 1,2 veces lo que pierde. Los últimos 12 meses no los mira mientras busca.
+  3. Examen final: las 5 mejores de la corrida (una por familia) rinden un examen con los últimos 12 meses, una sola vez
+     cada una: al menos 30 operaciones, ganar 1,15 veces lo que pierde, positiva en al menos 2 de las 3 monedas, en
+     cada semestre del examen menos uno como mucho y en los 12 meses.
+  4. Observación: la que aprueba queda 3 meses en observación, SIN dinero: el laboratorio calcula cada semana cómo le va
+     desde que aprobó, con las mismas comisiones, y lo compara con Breakout y Resorte de tendencia en el mismo período.
+     A los 3 meses, si ganó y le fue al menos tan bien como ellas, entra al piloto automático con una parte igual; si
+     no, se descarta. Las dos cosas quedan en Avisos.
+En la prueba con datos de 2024 a 2026, entrar a probar con dinero costaba plata (las candidatas que aprobaron el examen
+perdieron en sus primeros meses); observar sin dinero no costaba nada.
 """
 import argparse
 import copy
@@ -40,12 +42,13 @@ DATOS = "datos_lab"
 ESTADO = "laboratorio_estado.json"
 PROBADAS = os.path.join(CARPETA, "probadas.json")  # firmas ya evaluadas fuera de muestra (no se repiten)
 DESDE = "2022-01-01"
-CORTE = "2025-01-01"  # antes: entrenamiento; desde acá: prueba fuera de muestra
+CORTE = None  # antes: búsqueda; desde acá: examen final. Si no se fija, son los últimos 12 meses.
+OBSERVACION_DIAS = 90
 RIESGO, APAL, COMISION = 0.03, 10, 0.0005  # comisión de orden a mercado, más exigente que la del bot (0,02 %)
 
 MIN_OPS_ENTRENO, PF_ENTRENO = 60, 1.20
 MIN_OPS_PRUEBA, PF_PRUEBA = 30, 1.15
-FINALISTAS = 5       # cuántas se prueban fuera de muestra por corrida (pocas, para no "gastar" los datos de prueba)
+FINALISTAS = 5       # cuántas rinden el examen final por corrida (pocas, para no "gastar" los datos del examen)
 MAX_NUEVAS = 2       # cuántas candidatas nuevas puede proponer por corrida
 
 
@@ -295,7 +298,7 @@ def _firmas_existentes():
     except (OSError, ValueError):
         pass
     out.update(_familias_existentes())
-    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), "mis_estrategias", "estrategias"):
+    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), os.path.join(CARPETA, "ascendidas"), "mis_estrategias", "estrategias"):
         if os.path.isdir(carpeta):
             for fn in os.listdir(carpeta):
                 if fn.endswith(".json") and fn != "probadas.json":
@@ -310,7 +313,7 @@ def _firmas_existentes():
 
 def _familias_existentes():
     out = set()
-    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), "mis_estrategias"):
+    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), os.path.join(CARPETA, "ascendidas"), "mis_estrategias"):
         if os.path.isdir(carpeta):
             for fn in os.listdir(carpeta):
                 if fn.startswith("LAB_") and fn.endswith(".json"):
@@ -332,7 +335,7 @@ def _guardar_probadas(firmas):
 
 def _numero_siguiente():
     n = 0
-    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), "mis_estrategias"):
+    for carpeta in (CARPETA, os.path.join(CARPETA, "descartadas"), os.path.join(CARPETA, "ascendidas"), "mis_estrategias"):
         if os.path.isdir(carpeta):
             for fn in os.listdir(carpeta):
                 if fn.startswith("LAB_") and fn.endswith(".json"):
@@ -344,7 +347,7 @@ def _numero_siguiente():
     return n + 1
 
 
-def guardar_candidata(d, res):
+def guardar_candidata(d, res, ultima_vela=None):
     import alertas
     from i18n import num, t
     os.makedirs(CARPETA, exist_ok=True)
@@ -355,10 +358,11 @@ def guardar_candidata(d, res):
     out.update(id=f"LAB_{f}", numero=nro, nombre=f"Lab {nro}: {es}", nombre_en=f"Lab {nro}: {en}", _firma=f,
                _familia=familia(d),
                creada=datetime.now().strftime("%Y-%m-%d %H:%M"), descubierta=time.time(), origen="laboratorio",
+               examen=True, estado="observacion", observacion=dict(desde=ultima_vela, dias=OBSERVACION_DIAS),
                validacion=dict(
                    entreno=dict(desde=DESDE, hasta=CORTE, ops=len(res["entreno"]), pf=round(pf(res["entreno"]), 3),
                                 resultado=round(sum(res["entreno"]), 2)),
-                   prueba=dict(desde=CORTE, ops=len(res["prueba"]), pf=round(pf(res["prueba"]), 3),
+                   prueba=dict(desde=CORTE, examen=True, ops=len(res["prueba"]), pf=round(pf(res["prueba"]), 3),
                                resultado=round(sum(res["prueba"]), 2)),
                    por_moneda={a: dict(ops=m["ops"], resultado=round(m["resultado"], 2))
                                for a, m in res["por_moneda"].items()},
@@ -370,14 +374,117 @@ def guardar_candidata(d, res):
     with open(os.path.join(CARPETA, out["id"] + ".json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, indent=1)
     v = out["validacion"]["prueba"]
-    alertas.agregar(f"candidata_{out['id']}", "candidata", t("Nueva estrategia candidata: {e}", e=out["nombre"]), t(
-        "El laboratorio encontró una estrategia que pasó las pruebas: en 2025 en adelante, que no usó para crearla, ganó "
-        "{pf} veces lo que perdió en {n} operaciones. Mirala en Estrategias → Laboratorio.", pf=num(v["pf"]), n=v["ops"]),
-        {"estrategia": out["id"]})
+    alertas.agregar(f"candidata_{out['id']}", "candidata", t("Nueva estrategia en observación: {e}", e=out["nombre"]), t(
+        "Aprobó el examen final: en los últimos 12 meses, que no miró al buscarla, ganó {pf} veces lo que perdió en {n} "
+        "operaciones. Ahora queda 3 meses en observación, sin dinero: si le va al menos tan bien como Breakout y Resorte "
+        "de tendencia, entra sola al piloto automático. Mirala en Estrategias → Laboratorio.", pf=num(v["pf"]),
+        n=v["ops"]), {"estrategia": out["id"]})
     return out
 
 
+def _corte_dinamico(Ds):
+    ult = max(D["T"][-1] for D in Ds.values())
+    return datetime.fromtimestamp((ult - 365 * 86400000) / 1000, timezone.utc).strftime("%Y-%m-%d")
+
+
+def _rendimiento(estr, Ds, desde_ms):
+    """Resultado (en %) de una estrategia desde desde_ms hasta la última vela, promedio de las monedas, con las mismas
+    comisiones del laboratorio. Corre desde 2022 para que la estrategia llegue con sus posiciones como en la realidad."""
+    inicio, vals = _ms(DESDE), []
+    for D in Ds.values():
+        sl = E.Sleeve(estr, RIESGO, APAL, COMISION, 0.0, 100.0)
+        base = None
+        for i in range(1, D["n"]):
+            if D["T"][i] < inicio:
+                continue
+            sl.on_bar(D, i); sl.closed = []
+            if base is None and D["T"][i] >= desde_ms:
+                base = sl.mark(D["C"][i])
+        if base:
+            vals.append(sl.mark(D["C"][-1]) / base - 1)
+    return sum(vals) / len(vals) * 100 if vals else None
+
+
+def _mover(nombre_archivo, sub):
+    os.makedirs(os.path.join(CARPETA, sub), exist_ok=True)
+    os.replace(os.path.join(CARPETA, nombre_archivo), os.path.join(CARPETA, sub, nombre_archivo))
+
+
+def revisar_observacion(Ds, log=print, ahora_ms=None):
+    """Actualiza las candidatas en observación y decide las que cumplieron los 3 meses. Devuelve (ascendidas, descartadas)."""
+    import alertas
+    import archivos
+    from i18n import num, t
+    ascendidas, descartadas = [], []
+    if not os.path.isdir(CARPETA):
+        return ascendidas, descartadas
+    ult = max(D["T"][-1] for D in Ds.values())
+    ahora_ms = ahora_ms or ult
+    for fn in sorted(os.listdir(CARPETA)):
+        if not (fn.startswith("LAB_") and fn.endswith(".json")):
+            continue
+        p = os.path.join(CARPETA, fn)
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not d.get("examen"):  # candidata del laboratorio anterior (sin examen final): se descarta sin aviso
+            _mover(fn, "descartadas")
+            continue
+        if d.get("estado") != "observacion":
+            continue
+        ob = d.setdefault("observacion", {})
+        desde = ob.get("desde") or ult
+        E.STRATS["_OBS"] = R.compilar(d)
+        try:
+            rc = _rendimiento("_OBS", Ds, desde)
+        finally:
+            E.STRATS.pop("_OBS", None)
+        rb_l = [_rendimiento(s, Ds, desde) for s in K.PILOTO_BASE if s in E.STRATS]
+        rb = sum(rb_l) / len(rb_l) if rb_l else None
+        ob.update(ella=None if rc is None else round(rc, 2), base=None if rb is None else round(rb, 2),
+                  actualizado=time.time())
+        termino = ahora_ms - desde >= ob.get("dias", OBSERVACION_DIAS) * 86400000
+        if termino and rc is not None and rb is not None:
+            nombre = d.get("nombre", d["id"])
+            if rc > 0 and rc >= rb:
+                d["estado"] = "piloto"; d["piloto_desde"] = time.time()
+                import catalogo
+                catalogo.guardar_propia(d)
+                aj = archivos.leer_json("ajustes.json", {}) or {}
+                extra = [x for x in aj.get("piloto_extra", []) if x != d["id"]] + [d["id"]]
+                aj["piloto_extra"] = extra
+                archivos.escribir_json("ajustes.json", aj)
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(d, f, ensure_ascii=False, indent=1)
+                _mover(fn, "ascendidas")
+                ascendidas.append(d["id"])
+                alertas.agregar(f"asciende_{d['id']}", "recupera", t("{e} entra al piloto automático", e=nombre), t(
+                    "Terminó los 3 meses de observación: ganó {a} contra {b} de Breakout y Resorte de tendencia en el mismo "
+                    "período. Desde ahora el piloto le da una parte igual que a ellas. La app se reinicia sola para "
+                    "sumarla.", a=num(rc, 1, True) + " %", b=num(rb, 1, True) + " %"), {"estrategia": d["id"]})
+                log(f"{d['id']} asciende al piloto ({rc:.1f} % contra {rb:.1f} %)")
+            else:
+                d["estado"] = "descartada"
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(d, f, ensure_ascii=False, indent=1)
+                _mover(fn, "descartadas")
+                descartadas.append(d["id"])
+                alertas.agregar(f"descarta_{d['id']}", "info", t("{e} se descartó", e=nombre), t(
+                    "Terminó los 3 meses de observación: {a} contra {b} de Breakout y Resorte de tendencia en el mismo "
+                    "período. Para entrar al piloto tenía que ganar y que le fuera al menos tan bien como ellas. No usó "
+                    "dinero en ningún momento.", a=num(rc, 1, True) + " %", b=num(rb, 1, True) + " %"),
+                    {"estrategia": d["id"]})
+                log(f"{d['id']} descartada ({rc:.1f} % contra {rb:.1f} %)")
+        else:
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False, indent=1)
+    return ascendidas, descartadas
+
+
 def correr(minutos, semilla=None, Ds=None, log=print):
+    global CORTE
     rng = random.Random(semilla)
     inicio = time.time()
     st = _estado(corriendo=True, pid=os.getpid(), inicio=inicio, latido=inicio, probadas=0, mensaje="preparando datos")
@@ -385,6 +492,10 @@ def correr(minutos, semilla=None, Ds=None, log=print):
         Ds = {}
         for a, sym in K.SYMBOLS.items():
             Ds[a] = R.completar(E.prepare(velas(a, sym, log), K.BAR_MS, K.HTF_MS))
+    CORTE = CORTE or _corte_dinamico(Ds)
+    ultima_vela = max(D["T"][-1] for D in Ds.values())
+    _estado(mensaje="revisando las candidatas en observación")
+    ascendidas, descartadas = revisar_observacion(Ds, log)
     ya = _firmas_existentes()
     for s in E.STRATS.values():  # las del catálogo también cuentan como existentes
         if "datos" in s:
@@ -419,7 +530,7 @@ def correr(minutos, semilla=None, Ds=None, log=print):
         ya.add(firma(d))
         ok, motivos = aprueba(res)
         if ok and len(nuevas) < MAX_NUEVAS:
-            nuevas.append(guardar_candidata(d, res))
+            nuevas.append(guardar_candidata(d, res, ultima_vela))
             ya.add("fam:" + familia(d))
         else:
             for m in motivos:
@@ -428,13 +539,14 @@ def correr(minutos, semilla=None, Ds=None, log=print):
     anterior = st.get("probadas_total", 0)
     _estado(corriendo=False, fin=time.time(), latido=time.time(), probadas=probadas, probadas_total=anterior + probadas,
             finalistas=len(finalistas), nuevas=[n["id"] for n in nuevas], rechazos=rechazos,
-            candidatas_total=st.get("candidatas_total", 0) + len(nuevas), mensaje="listo")
+            candidatas_total=st.get("candidatas_total", 0) + len(nuevas), ascendidas=ascendidas,
+            descartadas=descartadas, corte=CORTE, mensaje="listo")
     return nuevas
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--minutos", type=float, default=20)
+    ap.add_argument("--minutos", type=float, default=30)
     ap.add_argument("--semilla", type=int, default=None)
     a = ap.parse_args()
     try:

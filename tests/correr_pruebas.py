@@ -211,6 +211,7 @@ def prueba_laboratorio():
     assert len({n["_familia"] for n in nuevas}) == len(nuevas)
     for n in nuevas:
         assert not R.validar(n) and n["validacion"]["prueba"]["pf"] >= L.PF_PRUEBA
+        assert n["estado"] == "observacion" and n["observacion"]["desde"] == Ds["A"]["T"][-1] and n["examen"]
     raiz_antes = catalogo.RAIZ
     try:
         catalogo.RAIZ = d
@@ -224,7 +225,32 @@ def prueba_laboratorio():
         catalogo.cargar({}, {})
     otra = L.correr(0.1, semilla=1, Ds=Ds, log=lambda m: None)  # no repite lo ya propuesto
     assert not {n["_familia"] for n in otra} & {n["_familia"] for n in nuevas}
-    print(f"6) laboratorio: {len(nuevas)} candidatas en una corrida corta, todas validadas y sin repetir familias")
+    # observación: a los 90 días se decide sola (asciende al piloto o se descarta), sin dinero
+    import alertas, archivos
+    raiz_antes = catalogo.RAIZ
+    try:
+        catalogo.RAIZ = d
+        for n in nuevas:
+            p_ = os.path.join("candidatas", n["id"] + ".json")
+            dd = json.load(open(p_, encoding="utf-8"))
+            dd["observacion"]["desde"] = Ds["A"]["T"][-1] - 100 * 86400000
+            json.dump(dd, open(p_, "w", encoding="utf-8"))
+        asc, desc = L.revisar_observacion(Ds, log=lambda m: None)
+        assert sorted(asc + desc) == sorted(n["id"] for n in nuevas), (asc, desc)
+        for x in asc:
+            assert os.path.exists(os.path.join(d, "mis_estrategias", x + ".json"))
+            assert x in archivos.leer_json("ajustes.json", {})["piloto_extra"]
+        for x in desc:
+            assert os.path.exists(os.path.join("candidatas", "descartadas", x + ".json"))
+        quedan = {f[:-5] for f in os.listdir("candidatas") if f.startswith("LAB_")}
+        assert not quedan & {n["id"] for n in nuevas} and quedan == {n["id"] for n in otra}, quedan  # las nuevas siguen en observación
+        avisos = [a["titulo"] for a in alertas.listar()]
+        assert len([a for a in avisos if "entra al piloto" in a or "se descartó" in a]) == len(nuevas), avisos
+    finally:
+        catalogo.RAIZ = raiz_antes
+        catalogo.cargar({}, {})
+    print(f"6) laboratorio: {len(nuevas)} candidatas aprobaron el examen, sin repetir familias; a los 3 meses de "
+          f"observación {len(asc)} entró al piloto y {len(desc)} se descartó")
 
 
 def prueba_reparto():
@@ -242,6 +268,15 @@ def prueba_reparto():
     import mercado as M
     h = {"estrategias": {"A": {"semestres": [5, -2, 10, 10]}, "B": {"semestres": [-5, 2, 10, 10]}, "C": {"semestres": [5, 5]}}}
     assert M.califica(h, "A")[0] is True and M.califica(h, "B")[0] is False and M.califica(h, "C")[0] is None
+    # una estrategia que entra al piloto (del laboratorio) empieza en uso, y una que se quitó sale sin romper nada
+    importlib.reload(auto)
+    auto.base = lambda: ["BREAKOUT", "TL", "CRUCE"]
+    st = {"sleeves": {}, "libre": 300.0, "capital_inicial": 300.0, "aportes": 0.0,
+          "auto": {"dentro": ["BREAKOUT", "TL", "VIEJA"], "conocidas": ["BREAKOUT", "TL", "VIEJA"], "racha": {}}}
+    act, asig = auto.plan(st, None)
+    import config as K_
+    assert st["auto"]["dentro"] == ["BREAKOUT", "TL", "CRUCE"] and len(asig) == 3 * len(K_.SYMBOLS), (st["auto"]["dentro"], asig)
+    importlib.reload(auto)
     print("7) reparto en partes iguales y revisión: respeta el mínimo de Binance y juzga solo con 2 años de historial")
 
 

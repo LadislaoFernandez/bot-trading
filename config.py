@@ -3,7 +3,7 @@
 SYMBOLS = {"BTC": "BTC/USDT:USDT", "ETH": "ETH/USDT:USDT", "SOL": "SOL/USDT:USDT"}
 STRATEGIES = ["BREAKOUT", "TL"]          # cada estrategia x cada activo = 6 posiciones independientes
 PILOTO_BASE = ["BREAKOUT", "TL"]         # las que usa el piloto automático (ver auto.py)
-RETIRADAS = ["MR", "RSI2"]               # perdieron todos los años desde 2023: no se ofrecen (sus posiciones abiertas se cierran normalmente)
+RETIRADAS = ["MR", "RSI2", "CRUCE", "SUPERTREND"]  # no suman a Breakout y Resorte: no se ofrecen (sus posiciones abiertas se cierran normalmente)
 
 TIMEFRAME = "1h"
 BAR_MS = 3_600_000
@@ -38,9 +38,18 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.9.2"
+VERSION = "1.10"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.10", "07/11/2026", [
+        "Laboratorio nuevo: busca una vez por semana solo con datos hasta hace 12 meses; las 5 mejores rinden un examen "
+        "final con los últimos 12 meses, una sola vez cada una.",
+        "La que aprueba queda 3 meses en observación sin dinero. Si gana y le va al menos tan bien como Breakout y "
+        "Resorte de tendencia, entra sola al piloto automático con una parte igual; si no, se descarta. Avisa en los dos "
+        "casos.",
+        "Se retiraron Cruce de medias y Supertrend (no le sumaban a Breakout y Resorte), y las estrategias del "
+        "laboratorio anterior pasaron a respaldos/estrategias_viejas.",
+    ]),
     ("1.9.2", "07/11/2026", [
         "Resultados por mes: un cambio de capital que vuelve atrás (por ejemplo de 300 a 350 y de nuevo a 300) ya no "
         "aparece como pérdida.",

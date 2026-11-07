@@ -23,7 +23,16 @@ MESES_HISTERESIS = 3
 
 
 def base():
-    return [s for s in K.PILOTO_BASE if s in M.PT_NOMBRES]
+    """Estrategias del piloto: Breakout y Resorte de tendencia, más las del laboratorio que terminaron su observación
+    ganándoles (ajustes.json → piloto_extra)."""
+    extra = []
+    try:
+        import paper_trader as PT
+        extra = [s for s in PT.leer_ajustes().get("piloto_extra", []) or [] if s in M.PT_NOMBRES]
+    except Exception:  # sin ajustes legibles: solo la base fija
+        pass
+    fija = [s for s in K.PILOTO_BASE if s in M.PT_NOMBRES]
+    return fija + [s for s in extra if s not in fija]
 
 
 def _avisar(id_, tipo, titulo, texto):
@@ -101,6 +110,11 @@ def plan(st, historial, minimo=None, log=None, reduccion=0.0, ahora=None):
     if "dentro" not in au:  # estado del piloto anterior (por tipo de mercado): empieza de nuevo
         au = {"dentro": None, "racha": {}}
     st["auto"] = au
+    b = base()
+    if au.get("dentro") is not None:  # una estrategia que entra al piloto (del laboratorio) empieza en uso
+        nuevas = [s for s in b if s not in (au.get("conocidas") or K.PILOTO_BASE)]
+        au["dentro"] = [s for s in au["dentro"] if s in b] + [s for s in nuevas if s not in au["dentro"]]
+    au["conocidas"] = b
     revisado = revisar(au, historial, ahora, log)
     dentro = au.get("dentro") if au.get("dentro") is not None else base()
     total = max(0.0, sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0) - reduccion)

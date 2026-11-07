@@ -32,12 +32,26 @@ def log(msg):
 def load_state():
     if os.path.exists(K.STATE_FILE):
         with open(K.STATE_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            st = json.load(f)
+        _limpiar_quitadas(st)
+        return st
     # estado nuevo: todo el capital empieza sin asignar y aplicar_asignacion lo reparte según los montos elegidos
     return {"inicio": datetime.now().isoformat(timespec="seconds"), "last_bar": {}, "modo": K.MODO,
             "capital_inicial": K.INITIAL_CAPITAL, "aportes": 0.0, "libre": K.INITIAL_CAPITAL, "aplicado": {},
             "activas": estrategias_activas(),
             "sleeves": {f"{a}_{s}": {"equity": 0.0, "pos": None, "pending": None} for a in K.SYMBOLS for s in NOMBRES}}
+
+
+def _limpiar_quitadas(st):
+    """Partes de estrategias que ya no existen (quitadas de mis estrategias): su capital vuelve a 'sin asignar'. Las que
+    tienen una posición abierta u orden pendiente se dejan hasta que se resuelvan."""
+    for k in list(st.get("sleeves", {})):
+        s = k.split("_", 1)[1]
+        v = st["sleeves"][k]
+        if s not in NOMBRES and not v.get("pos") and not v.get("pending"):
+            st["libre"] = st.get("libre", 0.0) + v.get("equity", 0.0)
+            del st["sleeves"][k]
+            st.get("aplicado", {}).pop(k, None)
 
 
 def save_state(st):

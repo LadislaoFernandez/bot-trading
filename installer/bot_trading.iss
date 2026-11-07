@@ -57,6 +57,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
+[InstallDelete]
+Type: files; Name: "{app}\ver_estado.bat"
+Type: files; Name: "{app}\verificar_backtest.bat"
+Type: files; Name: "{app}\actualizar_app.bat"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\__pycache__"

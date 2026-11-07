@@ -26,6 +26,7 @@ class Broker:
         import ccxt
         self.ccxt = ccxt
         self.modo = modo
+        self.stats = dict(ordenes=0, mercado=0, comision=0.0, volumen=0.0)  # órdenes del bot (se pasan al estado)
         self.ex = ccxt.binanceusdm({"apiKey": api_key, "secret": secret, "enableRateLimit": True,
                                     "options": {"adjustForTimeDifference": True}})
         if modo == "demo":
@@ -37,6 +38,13 @@ class Broker:
         self.preparado = set()
 
     # ---------- cuenta
+    def restricciones(self):
+        """Permisos de la clave (solo cuenta real): futuros habilitados, retiros deshabilitados y restricción de IP."""
+        f = getattr(self.ex, "sapi_get_account_apirestrictions", None) or getattr(self.ex, "sapiGetAccountApiRestrictions")
+        r = f()
+        return dict(futuros=bool(r.get("enableFutures")), retiros=bool(r.get("enableWithdrawals")),
+                    ip=bool(r.get("ipRestrict")))
+
     def saldo(self):
         b = self.ex.fetch_balance()
         u = b.get("USDT", {})
@@ -135,6 +143,9 @@ class Broker:
             f = float(o.get("filled") or restante)
             p = float(o.get("average") or self.libro(sym)[1 if side == "buy" else 0])
             lleno += f; costo += f * p; comision += f * p * K.FEE_TAKER
+        if lleno:
+            e = self.__dict__.setdefault("stats", dict(ordenes=0, mercado=0, comision=0.0, volumen=0.0))
+            e["ordenes"] += 1; e["mercado"] += int(a_mercado); e["comision"] += comision; e["volumen"] += costo
         return dict(cantidad=lleno, precio=(costo / lleno) if lleno else None, comision=comision, mercado=a_mercado)
 
     def poner_stop(self, sym, lado, qty, stop):
@@ -343,6 +354,8 @@ def step_live(br, st):
             total += v["equity"]
     total += st.get("libre", 0.0)
     st["ultima_revision_ms"] = ahora
+    PT.sumar_ordenes(st, getattr(br, "stats", {}))
+    br.stats = dict(ordenes=0, mercado=0, comision=0.0, volumen=0.0)
     cap0 = st.get("ref_limite") or PT.base_capital(st)  # al reanudar se mide desde el saldo de ese momento
     if not frenado and total < cap0 * (1 - K.LIMITE_PERDIDA):
         st["frenado"] = True

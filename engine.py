@@ -321,6 +321,7 @@ class Sleeve:
         self.simular_stops = simular_stops  # en vivo el stop está puesto en Binance
         self.equity, self.pos, self.pending = equity, position, pending
         self.closed = []  # operaciones cerradas en este paso
+        self.comisiones, self.ordenes = 0.0, 0  # pagadas en este paso (para las estadísticas de la app)
 
     def _in(self, px, side):
         return px * (1 + self.slip) if side == "long" else px * (1 - self.slip)
@@ -334,12 +335,14 @@ class Sleeve:
             return
         q = min(self.equity * self.risk / dist, self.equity * self.lev / e)
         self.equity -= q * e * self.fee
+        self.comisiones += q * e * self.fee; self.ordenes += 1
         self.pos = dict(side=side, q=q, e=e, stop=e - dist if side == "long" else e + dist, bars=0, t=t)
 
     def close(self, px, t, reason):
         p = self.pos
         x, sg = self._out(px, p["side"]), 1 if p["side"] == "long" else -1
         pnl = sg * (x - p["e"]) * p["q"] - p["q"] * x * self.fee
+        self.comisiones += p["q"] * x * self.fee; self.ordenes += 1
         self.equity += pnl
         self.closed.append(dict(side=p["side"], entrada_t=p["t"], salida_t=t, entrada=p["e"], salida=x,
                                 cantidad=p["q"], pnl=pnl, motivo=reason, capital=self.equity))

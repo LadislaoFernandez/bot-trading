@@ -1,144 +1,133 @@
-"""Piloto automático: el bot maneja solo las estrategias y el dinero, como si vos usaras la app.
+"""Piloto automático: el bot administra solo la cartera, como si vos usaras la app.
 
-En cada revisión, para cada moneda:
-  1. Lee el tipo de mercado (tendencia alcista, bajista o lateral) en las últimas 3 velas cerradas de 1 hora.
-     Solo cambia de tipo si las 3 coinciden, para no saltar de estrategia por un movimiento de una sola vela.
-  2. Elige todas las estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
-     operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias), y que no
-     vengan empeorando: si en los últimos 90 días perdió más de lo que ganó, no la usa hasta que se recupere.
-  3. Reparte todo el capital del bot (el del modo más lo ganado en operaciones cerradas) entre las estrategias
-     elegidas en las tres monedas, con más dinero para las que mejor funcionaron en ese tipo de mercado, sin pasar
-     del 40 % en ninguna y respetando el mínimo por orden de Binance. Las ganancias se reinvierten.
-Si en una moneda no conviene ninguna estrategia, no abre operaciones nuevas y su parte va a las otras monedas.
-Las posiciones abiertas de una estrategia que deja de estar elegida se siguen manejando hasta cerrarse.
+Cómo funciona (lo que mejor resultado dio en las simulaciones de 2023 a 2026 con el código del bot):
+  1. Usa las estrategias base (Breakout y Resorte de tendencia) en BTC, ETH y SOL, prendidas todo el tiempo. No las
+     prende ni apaga según el tipo de mercado: eso hacía perder las operaciones grandes, que son las que dan la ganancia.
+  2. Reequilibra una vez por día: reparte todo el capital (el del modo más lo ganado) en partes iguales entre las
+     partes en uso. Una parte con una posición abierta toma su monto nuevo cuando la cierra. Si a una parte no le
+     alcanza para el mínimo por orden de Binance, se deja afuera y su dinero va a las demás.
+  3. Revisión mensual de seguridad: una estrategia califica si ganó plata en los últimos 12 meses, y solo se juzga con
+     al menos 2 años de historial (mercado.califica). Si una estrategia en uso falla la revisión 3 meses seguidos, deja
+     de recibir dinero; si una que estaba afuera pasa 3 meses seguidos, vuelve. Cada cambio queda en Avisos.
+     En las simulaciones de 2023 a 2026 nunca sacó a Breakout ni a Resorte, y habría sacado a Reversión y a RSI(2) en
+     marzo de 2024 (una regla más exigente sacaba estrategias buenas en un mal momento y perdía la recuperación).
+Las posiciones abiertas de una estrategia que sale se siguen manejando hasta cerrarse.
 """
+from datetime import datetime
+
 import config as K
 import mercado as M
 from i18n import num, t
 
-MAX_POR_MONEDA = None  # sin tope: cada estrategia que conviene se usa en todas las monedas donde convenga
-VELAS_CONFIRMACION = 3
+MESES_HISTERESIS = 3
 
 
-def regimen_estable(D, previo):
-    n = D["n"]
-    if n < VELAS_CONFIRMACION + 1:
-        return previo
-    rs = {M.regimen(D, i) for i in range(n - VELAS_CONFIRMACION, n)}
-    actual = M.regimen(D, n - 1)
-    return actual if len(rs) == 1 else (previo or actual)
+def base():
+    return [s for s in K.PILOTO_BASE if s in M.PT_NOMBRES]
 
 
-def elegir(historial, regimen):
-    return [f["estrategia"] for f in M.recomendar(historial, regimen) if f["recomendable"]][:MAX_POR_MONEDA]
+def _avisar(id_, tipo, titulo, texto):
+    try:
+        import alertas
+        alertas.agregar(id_, tipo, titulo, texto)
+    except Exception:  # un aviso que no se pudo guardar nunca debe frenar al bot
+        pass
 
 
-def plan(st, Ds, historial, montos=None, log=None, reduccion=0.0, minimo=None):
-    """Ds: velas preparadas de cada moneda. Devuelve (estrategias por moneda, monto de cada parte).
-
-    Todo el capital del bot (el del modo más lo ganado o menos lo perdido en operaciones cerradas) se reparte entre las
-    estrategias elegidas en todas las monedas, con más dinero para las que mejor funcionan (montos_recomendados). Si en
-    una moneda no conviene ninguna, su parte va a las otras. Las partes con una posición abierta toman el monto nuevo
-    cuando la cierran. minimo(k, a): monto que necesita una estrategia para llegar al mínimo por orden de Binance."""
-    au = st.setdefault("auto", {"regimen": {}, "seleccion": {}})
-    act, cambios = {}, []
-    for a in K.SYMBOLS:
-        D = Ds.get(a)
-        reg = regimen_estable(D, au["regimen"].get(a)) if D else au["regimen"].get(a)
-        sel = elegir(historial, reg) if reg else []
-        act[a] = sel
-        if au["seleccion"].get(a) != sel or au["regimen"].get(a) != reg:
-            nombres = ", ".join(M.nombre_estrategia(s) for s in sel) if sel else t("ninguna (no abre operaciones nuevas)")
-            cambios.append(t("{a} ({r}): {e}", a=a, r=t(reg).lower() if reg else "—", e=nombres))
-        au["regimen"][a], au["seleccion"][a] = reg, sel
-    # reduccion: si bajaste el capital del modo, esa parte se deja sin asignar para poder sacarla
-    total = max(0.0, sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0) - reduccion)
-    asig, motivos = montos_recomendados(historial, {a: au["regimen"].get(a) for a in act}, act, total, minimo)
-    for k, m in motivos.items():  # las que no llegan al mínimo de Binance no operan (su parte va a las demás)
-        if m == "minimo":
-            a_, s_ = k.split("_", 1)
-            act[a_] = [x for x in act[a_] if x != s_]
-    firma = sorted((k, round(v)) for k, v in asig.items() if v > 0)
-    if (cambios or firma != au.get("reparto")) and log:
-        log(t("Piloto automático:") + " " + ("; ".join(cambios) + ". " if cambios else "") +
-            (t("Capital repartido: {l}.", l=", ".join(f"{k} {num(v)}" for k, v in asig.items() if v > 0))
-             if any(v > 0 for v in asig.values()) else
-             t("Todo el capital queda sin asignar hasta que convenga alguna estrategia.")))
-    au["reparto"] = firma
-    return act, asig
-
-
-def montos_por_defecto(asignacion, activas, capital):
-    """Dinero por moneda al encender el piloto automático: lo que ya tenía asignado cada moneda."""
-    if asignacion:
-        m = {a: sum(v for k, v in asignacion.items() if k.startswith(a + "_") and k.split("_", 1)[1] in activas)
-             for a in K.SYMBOLS}
-        if sum(m.values()) > 0:
-            return {a: round(v, 2) for a, v in m.items()}
-    return {a: int(capital / len(K.SYMBOLS) * 100) / 100 for a in K.SYMBOLS}
-
-
-def describir_montos(montos):
-    return ", ".join(f"{a} {num(v)} USDT" for a, v in montos.items())
-
-
-TOPE_PARTE = 0.40  # ninguna estrategia en una moneda se lleva más del 40 % del capital
-
-
-def montos_recomendados(historial, regimen_por_activo, activas, total, minimo=None):
-    """Reparto recomendado del capital entre las estrategias activas, en cada moneda.
-
-    Peso de cada parte (estrategia en una moneda) según cómo le fue a esa estrategia en el tipo de mercado actual de
-    esa moneda: si conviene, pesa lo que ganó sobre lo que perdió (de 1,1 a 3); con ventaja chica o sin datos
-    suficientes pesa 0,5; si perdió en ese tipo de mercado o viene empeorando, no recibe capital. Así se reparte entre
-    varias (no todo a una) pero con más a las que mejor funcionan. Ninguna parte pasa del 40 % del total.
-    minimo(k, a) -> monto mínimo para llegar al tamaño de orden de Binance (o None): las partes que no llegan quedan en
-    0 y su parte se reparte entre las demás.
-    Devuelve ({'BTC_TL': monto, ...}, {'BTC_TL': motivo}) ."""
-    partes, motivos = {}, {}
-    for a, reg in regimen_por_activo.items():
-        for k in (activas.get(a, []) if isinstance(activas, dict) else activas):
-            d = ((historial or {}).get("estrategias", {}).get(k) or {})
-            r = d.get("regimenes", {}).get(reg, {})
-            ops, pf = r.get("ops") or 0, r.get("pf")
-            clave = f"{a}_{k}"
-            if d.get("estado") == "empeora":
-                partes[clave], motivos[clave] = 0.0, "empeora"
-            elif ops >= M.MIN_OPS and pf is not None and pf < 1:
-                partes[clave], motivos[clave] = 0.0, "no_conviene"
-            elif ops >= M.MIN_OPS and pf is not None and pf >= M.PF_RECOMENDABLE:
-                partes[clave], motivos[clave] = 1 + min(pf, 3.0) - 1, "conviene"  # 1,1 a 3 según su ventaja
+def revisar(au, historial, ahora=None, log=None):
+    """Revisión mensual. Se hace una vez por mes, la primera vez que el bot revisa en ese mes con el historial listo."""
+    ahora = ahora or datetime.now()
+    mes = ahora.strftime("%Y-%m")
+    if au.get("mes") == mes or not historial:
+        return False
+    if not any("semestres" in (historial.get("estrategias", {}).get(s) or {}) for s in base()):
+        return False  # historial de una versión anterior: espera a que se recalcule para hacer la revisión
+    dentro = set(au.get("dentro") if au.get("dentro") is not None else base())
+    racha, resultado = au.setdefault("racha", {}), {}
+    for s in base():
+        ok, sem = M.califica(historial, s)
+        resultado[s] = {"califica": ok, "semestres": [round(x, 2) for x in sem]}
+        if ok is None:  # sin datos suficientes: no cuenta ni a favor ni en contra
+            continue
+        esta = s in dentro
+        falla = (not ok) if esta else ok  # en uso y falla, o afuera y pasa
+        racha[s] = racha.get(s, 0) + 1 if falla else 0
+        nombre = M.nombre_estrategia(s)
+        if esta and falla:
+            if racha[s] >= MESES_HISTERESIS:
+                dentro.discard(s); racha[s] = 0
+                _avisar(f"piloto_sale_{s}_{mes}", "empeora", t("{e} deja de recibir dinero", e=nombre), t(
+                    "Perdió plata en los últimos 12 meses en {n} revisiones mensuales seguidas. El piloto deja de darle "
+                    "dinero; sus posiciones abiertas se manejan hasta cerrarse. Vuelve sola si pasa la revisión {n} meses "
+                    "seguidos.", n=MESES_HISTERESIS))
             else:
-                partes[clave], motivos[clave] = 0.5, "sin_datos" if ops < M.MIN_OPS or pf is None else "debil"
-    if not partes:
-        return {}, {}
-    if sum(partes.values()) <= 0:  # ninguna conviene: reparte en partes iguales para no dejar todo quieto
-        partes = {k: 1.0 for k in partes}
-    for _ in range(len(partes) + 1):
-        tot_peso = sum(partes.values())
-        montos = {k: total * w / tot_peso if tot_peso else 0.0 for k, w in partes.items()}
-        # tope por parte: lo que sobra se reparte entre las demás
-        for _ in range(len(partes)):
-            sobra = sum(m - total * TOPE_PARTE for m in montos.values() if m > total * TOPE_PARTE)
-            if sobra <= 1e-9:
-                break
-            libres = [k for k, m in montos.items() if m < total * TOPE_PARTE - 1e-9 and partes[k] > 0]
-            if not libres:
-                break
-            for k in montos:
-                montos[k] = min(montos[k], total * TOPE_PARTE)
-            pl = sum(partes[k] for k in libres)
-            for k in libres:
-                montos[k] += sobra * partes[k] / pl
-        # la parte más chica que no llega al mínimo de Binance sale del reparto
-        bajas = [(montos[k], k) for k in montos
-                 if partes[k] > 0 and minimo and minimo(k.split("_", 1)[1], k.split("_", 1)[0]) and
-                 montos[k] < minimo(k.split("_", 1)[1], k.split("_", 1)[0])]
+                _avisar(f"piloto_falla_{s}_{mes}", "empeora", t("{e} falló la revisión mensual", e=nombre), t(
+                    "Perdió plata en los últimos 12 meses ({p}). Falló {r} de {n} revisiones seguidas: si falla {n} "
+                    "seguidas, el piloto le deja de dar dinero. Por ahora sigue igual.", p=num(M.ultimo_anio(sem), 1, True) + " %",
+                    r=racha[s], n=MESES_HISTERESIS))
+        elif not esta and falla:
+            if racha[s] >= MESES_HISTERESIS:
+                dentro.add(s); racha[s] = 0
+                _avisar(f"piloto_vuelve_{s}_{mes}", "recupera", t("{e} vuelve al piloto", e=nombre), t(
+                    "Pasó la revisión mensual {n} meses seguidos: desde hoy vuelve a recibir dinero.", n=MESES_HISTERESIS))
+    if not dentro:
+        _avisar(f"piloto_vacio_{mes}", "empeora", t("El piloto no tiene estrategias en uso"), t(
+            "Ninguna estrategia base pasa la revisión mensual: todo el capital queda sin asignar hasta que alguna vuelva."))
+    au.update(mes=mes, dentro=sorted(dentro, key=base().index), revision=resultado, revision_hora=ahora.timestamp())
+    if log:
+        log(t("Piloto automático: revisión mensual hecha. En uso: {e}.",
+              e=", ".join(M.nombre_estrategia(s) for s in au["dentro"]) or t("ninguna")))
+    return True
+
+
+def repartir(total, partes, minimo=None):
+    """Partes iguales. La parte que no llega al mínimo de Binance sale (primero la que más necesita) y su dinero va a las
+    demás. Devuelve ({'BTC_TL': monto}, [partes que quedaron afuera por el mínimo])."""
+    partes, afuera = list(partes), []
+    while partes:
+        m = total / len(partes)
+        bajas = [k for k in partes if minimo and (minimo(k.split("_", 1)[1], k.split("_", 1)[0]) or 0) > m]
         if not bajas:
-            break
-        _, k = min(bajas)
-        partes[k], motivos[k] = 0.0, "minimo"
-        if sum(partes.values()) <= 0:
-            montos = {k: 0.0 for k in partes}
-            break
-    return {k: int(m * 100) / 100 for k, m in montos.items()}, motivos
+            return {k: int(m * 100) / 100 for k in partes}, afuera
+        k = max(bajas, key=lambda k: minimo(k.split("_", 1)[1], k.split("_", 1)[0]))
+        partes.remove(k); afuera.append(k)
+    return {}, afuera
+
+
+def plan(st, historial, minimo=None, log=None, reduccion=0.0, ahora=None):
+    """Estrategias por moneda y monto de cada parte. Reequilibra una vez por día (o si cambió la cartera o el capital)."""
+    ahora = ahora or datetime.now()
+    au = st.get("auto") or {}
+    if "dentro" not in au:  # estado del piloto anterior (por tipo de mercado): empieza de nuevo
+        au = {"dentro": None, "racha": {}}
+    st["auto"] = au
+    revisado = revisar(au, historial, ahora, log)
+    dentro = au.get("dentro") if au.get("dentro") is not None else base()
+    total = max(0.0, sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0) - reduccion)
+    firma = [ahora.strftime("%Y-%m-%d"), list(dentro), round(reduccion, 2),
+             round((st.get("capital_inicial") or 0) + st.get("aportes", 0.0), 2)]
+    if au.get("firma") != firma or revisado or not au.get("asig") and dentro:
+        partes = [f"{a}_{s}" for a in K.SYMBOLS for s in dentro]
+        asig, afuera = repartir(total, partes, minimo)
+        au.update(firma=firma, asig=asig, afuera=afuera, reequilibrio_hora=ahora.timestamp(), total=round(total, 2))
+        if log:
+            txt = (t("Piloto automático: reequilibrio diario, {d} en {n} partes de {m} cada una.", d=num(total),
+                     n=len(asig), m=num(next(iter(asig.values())))) if asig else
+                   t("Piloto automático: todo el capital queda sin asignar."))
+            if afuera:
+                txt += " " + t("Sin monto por el mínimo de Binance: {p}.", p=", ".join(afuera))
+            log(txt)
+    asig = au.get("asig") or {}
+    act = {a: [s for s in dentro if f"{a}_{s}" in asig] for a in K.SYMBOLS}
+    return act, dict(asig)
+
+
+def proximo_reequilibrio(au):
+    from datetime import timedelta
+    h = (au or {}).get("reequilibrio_hora")
+    return (datetime.fromtimestamp(h).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)) if h else None
+
+
+def proxima_revision(au):
+    hoy = datetime.now()
+    return datetime(hoy.year + (hoy.month == 12), hoy.month % 12 + 1, 1)

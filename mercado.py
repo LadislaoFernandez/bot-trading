@@ -6,8 +6,11 @@ Tipo de mercado (en velas de 1 hora, solo con información ya cerrada):
   - Lateral: ADX < 20
 Volatilidad: ATR actual contra la mediana de los últimos 30 días (alta > 1,3 veces, baja < 0,8 veces).
 
-El historial se calcula corriendo cada estrategia sobre velas reales desde 2022 con las mismas reglas,
-riesgo y comisiones que usa el bot, y anotando en qué tipo de mercado se abrió cada operación.
+El tipo de mercado se muestra como información: el piloto automático no lo usa para elegir estrategias (en las
+simulaciones de 2023 a 2026, prender y apagar estrategias según el tipo de mercado perdía contra dejarlas fijas).
+
+El historial se calcula corriendo cada estrategia sobre velas reales desde 2022 con las mismas reglas, riesgo y
+comisiones que usa el bot: resultado por año, por mes y por semestre (lo que mira la revisión mensual del piloto).
 """
 import json
 import os
@@ -23,11 +26,6 @@ PT_NOMBRES = __import__("engine").NOMBRES  # un solo registro de estrategias (en
 CACHE = "historial_estrategias.json"
 REGIMENES = ["Tendencia alcista", "Tendencia bajista", "Lateral"]
 DESDE = "2022-01-01"
-MIN_OPS = 30          # mínimo de operaciones para considerar el dato confiable
-PF_RECOMENDABLE = 1.10
-DIAS_RECIENTE = 90    # ventana para ver si una estrategia viene empeorando
-MIN_OPS_RECIENTE = 10
-PF_EMPEORA = 0.90     # con menos de esto en los últimos 90 días (y bien en el total), se considera que empeora
 
 
 def nombre_estrategia(s):
@@ -76,9 +74,15 @@ def analisis(D):
                 hora=D["T"][i] / 1000)
 
 
-# ------------------------------------------------------------------ historial por régimen
+# ------------------------------------------------------------------ historial de cada estrategia
+
+
+
 def _correr(D, strat, desde_ms):
+    """Corre la estrategia en todas las velas desde desde_ms. Devuelve las operaciones (régimen al entrar, % sobre el
+    capital, hora de entrada, hora de salida), el capital final (empezando con 100) y el capital al cierre de cada mes."""
     sl, ops, eq_entrada, reg_entrada = Sleeve(strat, K.RISK_PER_TRADE, K.MAX_LEVERAGE, K.FEE, K.SLIPPAGE, 100.0), [], None, None
+    meses = {}
     for i in range(1, D["n"]):
         if D["T"][i] < desde_ms:
             continue
@@ -90,47 +94,76 @@ def _correr(D, strat, desde_ms):
             eq_entrada, reg_entrada = eq_antes, reg_vela_anterior
         for tr in sl.closed:
             base = eq_entrada or eq_antes
-            ops.append((reg_entrada or reg_vela_anterior, tr["pnl"] / base * 100, tr["entrada_t"]))
+            ops.append((reg_entrada or reg_vela_anterior, tr["pnl"] / base * 100, tr["entrada_t"], tr["salida_t"]))
             eq_entrada = reg_entrada = None
             if sl.pos is not None:  # se dio vuelta en la misma vela
                 eq_entrada, reg_entrada = sl.equity, reg_vela_anterior
         sl.closed = []
-    return ops, sl.equity
+        meses[datetime.fromtimestamp(D["T"][i] / 1000, timezone.utc).strftime("%Y-%m")] = sl.mark(D["C"][i])
+    return ops, sl.equity, meses
 
 
-def calcular_historial(fetch_rows, progreso=None):
-    """fetch_rows(asset) -> velas 1h desde 2021-12. Devuelve el resumen por estrategia y régimen."""
+def semestres_de(mensual, ahora=None):
+    """Resultado de los últimos 4 semestres completos (el más reciente primero), con el capital de la estrategia
+    siempre prendida, en promedio de las 3 monedas. mensual: {"2026-09": % del mes}. El mes en curso no cuenta."""
+    ahora = ahora or datetime.now(timezone.utc)
+    y, m = ahora.year, ahora.month
+    meses = []
+    for _ in range(24):  # los 24 meses completos anteriores al actual
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        meses.append(f"{y}-{m:02d}")
+    out = []
+    for q in range(4):
+        bloque = meses[q * 6:(q + 1) * 6]
+        if any(b not in mensual for b in bloque):
+            break
+        r = 1.0
+        for b in bloque:
+            r *= 1 + mensual[b] / 100
+        out.append((r - 1) * 100)
+    return out
+
+
+def calcular_historial(fetch_rows, progreso=None, ahora_ms=None):
+    """fetch_rows(asset) -> velas 1h desde 2021-12. Devuelve el resumen de cada estrategia: resultado por año y por mes
+    (promedio de las 3 monedas, como si estuviera siempre prendida), los últimos 4 semestres (para la revisión mensual
+    del piloto) y el detalle por tipo de mercado."""
     desde_ms = int(datetime.strptime(DESDE, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
-    acum = {s: {r: [] for r in REGIMENES} for s in STRATS}
-    recientes = {s: [] for s in STRATS}
-    total = {s: [] for s in STRATS}
-    desde_rec = int(time.time() * 1000) - DIAS_RECIENTE * 86400 * 1000
-    pasos = len(K.SYMBOLS) * (len(STRATS) + 1)
+    ahora_ms = ahora_ms or int(time.time() * 1000)
+    estrategias = [s for s in STRATS if s not in getattr(K, "RETIRADAS", ())]
+    acum = {s: {r: [] for r in REGIMENES} for s in estrategias}
+    todas = {s: [] for s in estrategias}
+    meses = {s: {} for s in estrategias}
+    pasos = len(K.SYMBOLS) * (len(estrategias) + 1)
     n = 0
     for a in K.SYMBOLS:
         if progreso:
             progreso(n / pasos, _t("Bajando historial de {a}", a=a))
         D = prepare(fetch_rows(a), K.BAR_MS, K.HTF_MS)
         n += 1
-        for s in STRATS:
+        for s in estrategias:
             if progreso:
                 progreso(n / pasos, _t("Probando {s} en {a}", s=nombre_estrategia(s), a=a))
-            ops, eq = _correr(D, s, desde_ms)
-            for r, pct, t_ent in ops:
-                acum[s][r].append(pct)
-                if t_ent >= desde_rec:
-                    recientes[s].append(pct)
-            total[s].append(eq / 100 - 1)
+            ops, eq, mm = _correr(D, s, desde_ms)
+            for o in ops:
+                if o[3] < ahora_ms:
+                    acum[s][o[0]].append(o[1]); todas[s].append(o)
+            prev = 100.0
+            for m in sorted(mm):
+                meses[s].setdefault(m, []).append(mm[m] / prev - 1)
+                prev = mm[m]
             n += 1
-    out = {"calculado": time.time(), "desde": DESDE, "estrategias": {}}
-    for s in STRATS:
-        por_reg = {}
-        for r in REGIMENES + ["Total"]:
-            xs = [x for rr in REGIMENES for x in acum[s][rr]] if r == "Total" else acum[s][r]
-            por_reg[r] = _resumen(xs)
-        rec = _resumen(recientes[s])
-        out["estrategias"][s] = dict(regimenes=por_reg, reciente=rec, estado=_estado(por_reg["Total"], rec),
-                                     resultado_prom_activo=sum(total[s]) / len(total[s]) * 100 if total[s] else None)
+    out = {"calculado": time.time(), "desde": DESDE, "version": 2, "estrategias": {}}
+    for s in estrategias:
+        por_reg = {r: _resumen(acum[s][r]) for r in REGIMENES}
+        por_reg["Total"] = _resumen([o[1] for o in todas[s]])
+        mensual = {m: sum(v) / len(v) * 100 for m, v in sorted(meses[s].items())}
+        anios = {}
+        for m, v in mensual.items():
+            anios[m[:4]] = (1 + anios.get(m[:4], 0) / 100) * (1 + v / 100) * 100 - 100
+        out["estrategias"][s] = dict(regimenes=por_reg, mensual=mensual, anios=anios, semestres=semestres_de(mensual))
     return out
 
 
@@ -140,28 +173,19 @@ def _resumen(xs):
                 promedio=(sum(xs) / len(xs)) if xs else None, pf=(g / p) if p > 0 else (None if not g else 99.0))
 
 
-def _estado(total, rec):
-    """'empeora' si funcionaba en el total pero en los últimos 90 días perdió más de lo que ganó; si no, 'normal'."""
-    ok_total = (total.get("ops") or 0) >= MIN_OPS and (total.get("pf") or 0) >= PF_RECOMENDABLE
-    if ok_total and (rec.get("ops") or 0) >= MIN_OPS_RECIENTE and rec.get("pf") is not None and rec["pf"] < PF_EMPEORA:
-        return "empeora"
-    return "normal"
+def califica(historial, estrategia):
+    """Revisión mensual del piloto: la estrategia califica si ganó plata en los últimos 12 meses (los 2 semestres más
+    recientes). Solo se juzga con al menos 2 años de historial (4 semestres): con menos, un solo año malo la sacaría.
+    Devuelve (califica, semestres): califica es None si todavía no hay historial suficiente."""
+    d = ((historial or {}).get("estrategias", {}) or {}).get(estrategia)
+    rs = (d or {}).get("semestres") or []
+    if len(rs) < 4:
+        return None, rs
+    return ((1 + rs[0] / 100) * (1 + rs[1] / 100) - 1) > 0, rs
 
 
-def estado(historial, estrategia):
-    return ((historial or {}).get("estrategias", {}).get(estrategia) or {}).get("estado", "normal")
-
-
-def comparar(anterior, nuevo):
-    """Cambios de estado entre dos historiales: lista de (estrategia, 'empeora' | 'recupera')."""
-    out = []
-    for s, d in (nuevo or {}).get("estrategias", {}).items():
-        antes, ahora = estado(anterior, s), d.get("estado", "normal")
-        if ahora == "empeora" and antes != "empeora":
-            out.append((s, "empeora"))
-        elif antes == "empeora" and ahora != "empeora":
-            out.append((s, "recupera"))
-    return out
+def ultimo_anio(rs):
+    return ((1 + rs[0] / 100) * (1 + rs[1] / 100) - 1) * 100 if len(rs) >= 2 else None
 
 
 def guardar(h, carpeta="."):
@@ -175,64 +199,3 @@ def cargar(carpeta="."):
             return json.load(f)
     except (OSError, ValueError):
         return None
-
-
-def recomendar(historial, reg):
-    """Ranking de estrategias para el tipo de mercado actual, de mejor a peor."""
-    if not historial:
-        return []
-    filas = []
-    for s, d in historial["estrategias"].items():
-        if s not in STRATS:  # estrategia que ya no está instalada
-            continue
-        r = d["regimenes"].get(reg, {})
-        ok = (r.get("ops") or 0) >= MIN_OPS and r.get("pf") is not None
-        empeora = d.get("estado") == "empeora"
-        filas.append(dict(estrategia=s, ops=r.get("ops") or 0, pf=r.get("pf"), ganadoras=r.get("ganadoras"),
-                          promedio=r.get("promedio"), confiable=ok, empeora=empeora,
-                          recomendable=ok and r["pf"] >= PF_RECOMENDABLE and not empeora))
-    filas.sort(key=lambda f: (f["confiable"], f["pf"] or 0), reverse=True)
-    return filas
-
-
-def evaluar(historial, estrategia, regimen_por_activo):
-    """Recomendación de una estrategia para el mercado actual de cada moneda.
-    Devuelve (nivel, texto): nivel = 'si', 'debil', 'no' o 'sin_datos'."""
-    from i18n import num, t
-    if not historial or estrategia not in historial.get("estrategias", {}):
-        return "sin_datos", t("La recomendación aparece cuando termine de calcularse el historial.")
-    grupos = {}
-    for a, r in regimen_por_activo.items():
-        grupos.setdefault(r, []).append(a)
-    frases, niveles = [], []
-    for r, activos in grupos.items():
-        d = historial["estrategias"][estrategia]["regimenes"].get(r, {})
-        ops, pf = d.get("ops") or 0, d.get("pf")
-        act = t(" y ").join([", ".join(activos[:-1]), activos[-1]]) if len(activos) > 1 else activos[0]
-        reg = t(r).lower()
-        if ops < MIN_OPS or pf is None:
-            niveles.append("sin_datos")
-            frases.append(t("{a} ({r}): con {n} operaciones en este tipo de mercado no hay datos suficientes para "
-                            "saber si conviene.", a=act, r=reg, n=ops))
-        elif pf >= PF_RECOMENDABLE:
-            niveles.append("si")
-            frases.append(t("Conviene en {a} ({r}): en este tipo de mercado ganó {pf} veces lo que perdió, en {n} "
-                            "operaciones.", a=act, r=reg, pf=num(pf), n=ops))
-        elif pf >= 1:
-            niveles.append("debil")
-            frases.append(t("No conviene en {a} ({r}): ganó apenas {pf} veces lo que perdió en {n} operaciones, una "
-                            "ventaja demasiado chica para cubrir comisiones y errores de ejecución.", a=act, r=reg,
-                            pf=num(pf), n=ops))
-        else:
-            niveles.append("no")
-            frases.append(t("No conviene en {a} ({r}): en este tipo de mercado perdió más de lo que ganó ({pf} en {n} "
-                            "operaciones).", a=act, r=reg, pf=num(pf), n=ops))
-    nivel = "si" if "si" in niveles else "no" if "no" in niveles else "debil" if "debil" in niveles else "sin_datos"
-    d = historial["estrategias"][estrategia]
-    if d.get("estado") == "empeora":
-        rec = d.get("reciente", {})
-        frases.insert(0, t("Viene empeorando: en los últimos {d} días perdió más de lo que ganó ({pf} en {n} "
-                           "operaciones). El piloto automático no la usa hasta que se recupere.", d=DIAS_RECIENTE,
-                           pf=num(rec.get("pf")), n=rec.get("ops")))
-        nivel = "no"
-    return nivel, " ".join(frases)

@@ -3,7 +3,7 @@
     python tests/correr_pruebas.py
 
 1. Simulado contra backtest: hora a hora, el bot da exactamente lo mismo que el backtest.
-2. Modo automático: el dinero cuadra (capital + resultado = saldo) y elige estrategias según el mercado.
+2. Piloto automático: el dinero cuadra, reequilibra una vez por día y la revisión mensual saca a la que falla.
 3. Binance falso: en cada vela, las posiciones del bot coinciden con las de Binance y cada una tiene su stop.
 4. Actualizador: reemplaza el código, respalda la versión anterior y no toca los datos del usuario.
 Usa velas sintéticas (tests/datos), no necesita internet.
@@ -69,14 +69,24 @@ def prueba_backtest():
 
 
 def prueba_auto():
+    """Piloto: solo usa las estrategias base, reequilibra una vez por día en partes iguales sin perder un centavo, y la
+    revisión mensual saca a una estrategia que falla 3 meses seguidos (y avisa)."""
     d = carpeta_nueva()
-    shutil.copy(HIST, os.path.join(d, "historial_estrategias.json"))
+    with open(HIST, encoding="utf-8") as f:
+        h = json.load(f)
+    h["estrategias"]["TL"]["semestres"] = [-8.0, -4.0, 20.0, 15.0]   # perdió en los últimos 12 meses: falla
+    h["estrategias"]["BREAKOUT"]["semestres"] = [9.0, 6.0, 12.0, -3.0]  # ganó: pasa
+    with open(os.path.join(d, "historial_estrategias.json"), "w", encoding="utf-8") as f:
+        json.dump(h, f)
     K, PT, L, backtest = modulos()
+    import auto, alertas
+    importlib.reload(alertas); importlib.reload(auto)
     PT.configurar_modo("simulado"); K.SYMBOLS = {"SYN": "x"}
     logs = []; clock = reloj_falso(PT, logs)
+    PT.guardar_activas(["SUPERTREND"])  # lo manual no cuenta con el piloto encendido
     PT.guardar_auto(activo=True)
     st = PT.load_state()
-    usadas = set()
+    usadas, dentro_por_mes = set(), {}
     original = PT.aplicar_asignacion
 
     def revisar(st, act, asig=None):  # justo después de repartir: todo cuadra antes de operar
@@ -84,21 +94,31 @@ def prueba_auto():
         original(st, act, asig)
         tot = sum(v["equity"] for v in st["sleeves"].values()) + st["libre"]
         assert abs(tot - tot0) < 1e-6 and st["libre"] > -1e-9, (tot0, tot, st["libre"])
-        objetivos = {kk: v for kk, v in st["efectivo"]["asignacion"].items() if v > 0}
-        assert sum(objetivos.values()) <= tot + 0.05
-        bloqueado = sum(v["equity"] for kk, v in st["sleeves"].items() if v["pos"])
-        if not bloqueado:  # sin posiciones abiertas, cada elegida tiene exactamente su parte
-            for kk, v in objetivos.items():
-                assert abs(st["sleeves"][kk]["equity"] - v) < 0.05, (kk, st["sleeves"][kk]["equity"], v)
+        objetivos = {kk: v for kk, v in (asig or {}).items() if v > 0}
+        if st["auto"].get("reequilibrio_hora") != revisar.ultimo:  # recién reequilibrado: reparte lo que hay, ni más
+            revisar.ultimo = st["auto"].get("reequilibrio_hora")
+            assert sum(objetivos.values()) <= tot + 0.05, (sum(objetivos.values()), tot)
+        if len(set(round(v, 2) for v in objetivos.values())) > 1:
+            raise AssertionError(("partes distintas", objetivos))
+    revisar.ultimo = None
     PT.aplicar_asignacion = revisar
-    for k in range(3000, 4500):
+    for k in range(3000, 6000):
         clock["t"] = ROWS[k][0] + 20000
         PT.step(None, st)
         usadas.update(st["efectivo"]["activas"]["SYN"])
+        dentro_por_mes[st["auto"]["mes"]] = list(st["auto"]["dentro"])
+    reeq = [l for l in logs if "reequilibrio diario" in l]
+    dias = (ROWS[5999][0] - ROWS[3000][0]) / 86400000
+    assert usadas <= {"BREAKOUT", "TL"} and "BREAKOUT" in usadas, usadas
+    assert dias - 2 <= len(reeq) <= dias + 6, (len(reeq), dias)  # una vez por día (más si cambió la cartera)
+    meses = sorted(dentro_por_mes)
+    assert "TL" in dentro_por_mes[meses[1]] and "TL" not in dentro_por_mes[meses[2]], dentro_por_mes
+    assert dentro_por_mes[meses[-1]] == ["BREAKOUT"], dentro_por_mes
+    avisos = [a["titulo"] for a in alertas.listar()]
+    assert any("deja de recibir dinero" in x for x in avisos) and any("falló la revisión" in x for x in avisos), avisos
     ops = list(csv.DictReader(open(K.TRADES_FILE, encoding="utf-8")))
-    assert ops and len(usadas) >= 2, usadas
-    cambios = [l for l in logs if "automático" in l]
-    print(f"2) modo automático: {len(ops)} operaciones, {len(cambios)} cambios de estrategia, usó {sorted(usadas)}")
+    print(f"2) piloto automático: {len(ops)} operaciones, {len(reeq)} reequilibrios en {dias:.0f} días, "
+          f"revisión mensual: {dentro_por_mes}")
 
 
 def prueba_binance(semilla, auto=False):
@@ -207,18 +227,22 @@ def prueba_laboratorio():
     print(f"6) laboratorio: {len(nuevas)} candidatas en una corrida corta, todas validadas y sin repetir familias")
 
 
-def prueba_reparto_recomendado():
+def prueba_reparto():
     import auto
-    with open(HIST, encoding="utf-8") as f:
-        h = json.load(f)
-    regs = {"BTC": "Tendencia bajista", "ETH": "Tendencia bajista", "SOL": "Lateral"}
-    for act in (["TL", "BREAKOUT", "SUPERTREND"], ["TL"], ["MR", "RSI2"], ["RSI2"]):
-        m, mot = auto.montos_recomendados(h, regs, act, 300, minimo=lambda k, a: {"BTC": 30, "ETH": 8, "SOL": 3}[a])
-        assert 299.8 <= sum(m.values()) <= 300.0 + 1e-6, (act, sum(m.values()))
-        assert max(m.values()) <= 300 * auto.TOPE_PARTE + 0.01 or len([v for v in m.values() if v > 0]) * auto.TOPE_PARTE < 1
-        for k, v in m.items():
-            assert v == 0 or v >= {"BTC": 30, "ETH": 8, "SOL": 3}[k.split("_", 1)[0]], (k, v)
-    print("7) reparto recomendado: suma el capital, respeta el tope por parte y el mínimo de Binance")
+    importlib.reload(auto)
+    minimo = lambda k, a: {"BTC": 60, "ETH": 9, "SOL": 3}[a]
+    m, afuera = auto.repartir(360, ["BTC_TL", "BTC_BREAKOUT", "ETH_TL", "ETH_BREAKOUT", "SOL_TL", "SOL_BREAKOUT"], minimo)
+    assert set(m.values()) == {60.0} and not afuera, m
+    m, afuera = auto.repartir(250, ["BTC_TL", "BTC_BREAKOUT", "ETH_TL", "ETH_BREAKOUT", "SOL_TL", "SOL_BREAKOUT"], minimo)
+    assert set(afuera) == {"BTC_TL", "BTC_BREAKOUT"} and all(abs(v - 62.5) < 0.01 for v in m.values()), (m, afuera)
+    m, afuera = auto.repartir(100, ["BTC_TL"], minimo)
+    assert m == {"BTC_TL": 100.0}
+    m, afuera = auto.repartir(30, ["BTC_TL"], minimo)
+    assert m == {} and afuera == ["BTC_TL"]
+    import mercado as M
+    h = {"estrategias": {"A": {"semestres": [5, -2, 10, 10]}, "B": {"semestres": [-5, 2, 10, 10]}, "C": {"semestres": [5, 5]}}}
+    assert M.califica(h, "A")[0] is True and M.califica(h, "B")[0] is False and M.califica(h, "C")[0] is None
+    print("7) reparto en partes iguales y revisión: respeta el mínimo de Binance y juzga solo con 2 años de historial")
 
 
 def prueba_actualizador():
@@ -254,5 +278,5 @@ if __name__ == "__main__":
     prueba_actualizador()
     prueba_reglas()
     prueba_laboratorio()
-    prueba_reparto_recomendado()
+    prueba_reparto()
     print(f"TODO OK en {time.time() - t0:.0f} s")

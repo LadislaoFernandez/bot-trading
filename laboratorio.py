@@ -9,7 +9,9 @@ Cómo decide (para no engañarse con estrategias que solo "funcionaron de casual
   2. Las elige SOLO con velas de 2022 a 2024 (entrenamiento): al menos 60 operaciones sumando BTC, ETH y SOL, y ganar al
      menos 1,2 veces lo que pierde.
   3. A las 5 mejores de cada corrida las prueba con velas de 2025 en adelante, que nunca usó para elegirlas: al menos 30
-     operaciones, ganar 1,15 veces lo que pierde, salir positiva en al menos 2 de las 3 monedas y en 3 de cada 4 años.
+     operaciones, ganar 1,15 veces lo que pierde, salir positiva en al menos 2 de las 3 monedas y en 3 de cada 4 años,
+     y con el capital de la estrategia: ganar en cada semestre completo de la prueba menos uno como mucho y en los
+     últimos 12 meses (lo mismo que mira la revisión mensual del piloto).
   4. Descarta las que son iguales a una estrategia que ya existe o que ya se probó.
 Las que pasan quedan como "candidatas" y la app avisa. Nunca operan solas: vos decidís si agregarlas, y una vez
 agregadas se prueban primero como cualquier otra (simulado o demo).
@@ -181,7 +183,7 @@ def evaluar(d, Ds):
     S = R.compilar(d)
     E.STRATS["_LAB"] = S
     corte, inicio = _ms(CORTE), _ms(DESDE)
-    res = {"entreno": [], "prueba": [], "por_moneda": {}, "por_anio": {}}
+    res = {"entreno": [], "prueba": [], "por_moneda": {}, "por_anio": {}, "meses": {}}
     try:
         for a, D in Ds.items():
             sl = E.Sleeve("_LAB", RIESGO, APAL, COMISION, 0.0, 100.0)
@@ -202,10 +204,42 @@ def evaluar(d, Ds):
                     anio = datetime.fromtimestamp(tr["entrada_t"] / 1000, timezone.utc).year
                     res["por_anio"][anio] = res["por_anio"].get(anio, 0.0) + pct
                 sl.closed = []
+                if D["T"][i] >= corte:  # capital al cierre de cada mes de la prueba
+                    mes = datetime.fromtimestamp(D["T"][i] / 1000, timezone.utc).strftime("%Y-%m")
+                    res["meses"].setdefault(a, {})[mes] = sl.mark(D["C"][i])
             res["por_moneda"][a] = dict(ops=len(prueba_a), resultado=sum(prueba_a))
     finally:
         E.STRATS.pop("_LAB", None)
     return res
+
+
+def semestres_prueba(res, hoy=None):
+    """Resultado (en %) de cada semestre completo de la prueba y de los últimos 12 meses, con el capital de la
+    estrategia en promedio de las monedas. Solo cuenta meses completos."""
+    hoy = (hoy or datetime.now(timezone.utc)).strftime("%Y-%m")
+    por_mes = {}
+    for a, mm in res.get("meses", {}).items():
+        prev = 100.0
+        for m in sorted(mm):
+            if m >= hoy:
+                break
+            por_mes.setdefault(m, []).append(mm[m] / prev - 1)
+            prev = mm[m]
+    meses = sorted(por_mes)
+    rend = [sum(por_mes[m]) / len(por_mes[m]) for m in meses]
+    sem = []
+    for q in range(len(rend) // 6):
+        r = 1.0
+        for x in rend[q * 6:(q + 1) * 6]:
+            r *= 1 + x
+        sem.append((r - 1) * 100)
+    ult = None
+    if len(rend) >= 12:
+        r = 1.0
+        for x in rend[-12:]:
+            r *= 1 + x
+        ult = (r - 1) * 100
+    return sem, ult
 
 
 def pf(xs):
@@ -236,6 +270,11 @@ def aprueba(res):
     anios = list(res["por_anio"].values())
     if not anios or sum(1 for x in anios if x > 0) < 0.75 * len(anios):
         motivos.append("negativa en demasiados años")
+    sem, ult = semestres_prueba(res)
+    if sem and sum(1 for x in sem if x <= 0) > 1:
+        motivos.append("perdió en más de un semestre de la prueba")
+    if ult is not None and ult <= 0:
+        motivos.append("perdió en los últimos 12 meses")
     return not motivos, motivos
 
 
@@ -315,7 +354,7 @@ def guardar_candidata(d, res):
     out = {k: v for k, v in d.items() if not k.startswith("_")}
     out.update(id=f"LAB_{f}", numero=nro, nombre=f"Lab {nro}: {es}", nombre_en=f"Lab {nro}: {en}", _firma=f,
                _familia=familia(d),
-               creada=datetime.now().strftime("%Y-%m-%d %H:%M"), origen="laboratorio",
+               creada=datetime.now().strftime("%Y-%m-%d %H:%M"), descubierta=time.time(), origen="laboratorio",
                validacion=dict(
                    entreno=dict(desde=DESDE, hasta=CORTE, ops=len(res["entreno"]), pf=round(pf(res["entreno"]), 3),
                                 resultado=round(sum(res["entreno"]), 2)),
@@ -323,7 +362,8 @@ def guardar_candidata(d, res):
                                resultado=round(sum(res["prueba"]), 2)),
                    por_moneda={a: dict(ops=m["ops"], resultado=round(m["resultado"], 2))
                                for a, m in res["por_moneda"].items()},
-                   por_anio={str(k): round(v, 2) for k, v in sorted(res["por_anio"].items())}))
+                   por_anio={str(k): round(v, 2) for k, v in sorted(res["por_anio"].items())},
+                   semestres_prueba=[round(x, 2) for x in semestres_prueba(res)[0]]))
     problemas = R.validar(out)
     if problemas:
         raise ValueError(problemas)

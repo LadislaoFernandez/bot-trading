@@ -85,6 +85,42 @@ def leer_log(carpeta=".", lineas=400):
         return [l.rstrip("\n") for l in f.readlines()[-lineas:]]
 
 
+def curva_capital_archivo(carpeta, archivo):
+    pts = []
+    for r in leer_csv(archivo, carpeta):
+        try:
+            pts.append((datetime.strptime(r["hora"], "%Y-%m-%d %H:%M").timestamp(), float(r["total"])))
+        except (KeyError, ValueError):
+            continue
+    return pts
+
+
+def meses_de(pts):
+    """Resultado de cada mes a partir de una lista (hora, saldo)."""
+    meses, prev_fin = [], None
+    for ts, v in pts:
+        m = datetime.fromtimestamp(ts).strftime("%Y-%m")
+        if not meses or meses[-1]["mes"] != m:
+            meses.append(dict(mes=m, inicio=prev_fin if prev_fin is not None else v, fin=v, pico=v, dd=0.0))
+        x = meses[-1]
+        x["fin"] = v; x["pico"] = max(x["pico"], v); x["dd"] = max(x["dd"], (1 - v / x["pico"]) * 100 if x["pico"] else 0)
+        prev_fin = v
+    for x in meses:
+        x["pct"] = (x["fin"] / x["inicio"] - 1) * 100 if x["inicio"] else None
+    return meses
+
+
+def resultados_mensuales(carpeta="."):
+    """Resultado de cada mes del modo actual (saldo al cierre, variación, caída máxima del mes) y la caída máxima total.
+    Si cambiaste el capital del modo en un mes, ese mes incluye el cambio."""
+    pts = curva_capital(carpeta, max_puntos=None)
+    pico, dd = None, 0.0
+    for _, v in pts:
+        pico = v if pico is None else max(pico, v)
+        dd = max(dd, (1 - v / pico) * 100 if pico else 0)
+    return meses_de(pts), dd
+
+
 def curva_capital(carpeta=".", max_puntos=1500):
     filas = leer_csv(K.EQUITY_FILE, carpeta)
     pts = []
@@ -93,7 +129,7 @@ def curva_capital(carpeta=".", max_puntos=1500):
             pts.append((datetime.strptime(r["hora"], "%Y-%m-%d %H:%M").timestamp(), float(r["total"])))
         except (KeyError, ValueError):
             continue
-    if len(pts) > max_puntos:
+    if max_puntos and len(pts) > max_puntos:
         paso = len(pts) / max_puntos
         pts = [pts[int(i * paso)] for i in range(max_puntos)] + [pts[-1]]
     return pts
@@ -200,8 +236,9 @@ def snapshot(carpeta=".", precios=None, status=None):
         curva=curva_capital(carpeta),
         activas=activas,
         auto=auto,
-        auto_montos=(aj.get("auto", {}).get("montos", {}) or {}).get(K.MODO),
         auto_estado=(st or {}).get("auto"),
+        ordenes=(st or {}).get("ordenes"),
+        mensual=resultados_mensuales(carpeta),
         activas_moneda=act_mon,
         decisiones=decisiones(carpeta),
         precios=precios,

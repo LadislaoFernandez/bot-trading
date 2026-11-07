@@ -2,6 +2,8 @@
 
 SYMBOLS = {"BTC": "BTC/USDT:USDT", "ETH": "ETH/USDT:USDT", "SOL": "SOL/USDT:USDT"}
 STRATEGIES = ["BREAKOUT", "TL"]          # cada estrategia x cada activo = 6 posiciones independientes
+PILOTO_BASE = ["BREAKOUT", "TL"]         # las que usa el piloto automático (ver auto.py)
+RETIRADAS = ["MR", "RSI2"]               # perdieron todos los años desde 2023: no se ofrecen (sus posiciones abiertas se cierran normalmente)
 
 TIMEFRAME = "1h"
 BAR_MS = 3_600_000
@@ -32,12 +34,30 @@ ARCHIVOS_MODO = {
 NOMBRE_MODO = {"simulado": "Simulado", "demo": "Demo de Binance", "real": "Dinero real"}
 FEE_TAKER = 0.0005            # comisión a mercado en Binance Futuros
 ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de completar a mercado
+OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  # de versiones viejas: la app los borra al abrir
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.8.1"
+VERSION = "1.9"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.9", "07/11/2026", [
+        "Piloto automático nuevo: usa Breakout y Resorte de tendencia en BTC, ETH y SOL, prendidas todo el tiempo, y "
+        "reparte todo el capital en partes iguales una vez por día. Ya no cambia de estrategia según el tipo de mercado "
+        "(en las simulaciones de 2023 a 2026 eso perdía contra dejarlas fijas).",
+        "Revisión mensual: si una estrategia del piloto pierde plata en los últimos 12 meses en 3 revisiones seguidas, "
+        "deja de recibir dinero y la app avisa. Vuelve sola si pasa 3 revisiones seguidas.",
+        "Estrategias: cada tarjeta muestra el resultado por año y por semestre. Se retiraron Reversión a la media y "
+        "RSI(2), que perdieron todos los años desde 2023, y la recomendación por tipo de mercado.",
+        "Resumen: resultados por mes comparados con la simulación, caída máxima, y órdenes y comisiones (cuántas se "
+        "completaron a mercado).",
+        "Capital mínimo recomendado para que todas las partes lleguen al mínimo de Binance.",
+        "Dinero real: la app verifica los permisos de la clave (futuros sí, retiros no, IP restringida) y muestra una "
+        "lista de control antes de activarlo.",
+        "Laboratorio más exigente: las candidatas tienen que ganar en casi todos los semestres de la prueba y en los "
+        "últimos 12 meses. Se sacó \"Proponer para todos\".",
+        "Se borran archivos de versiones viejas que ya no se usaban.",
+    ]),
     ("1.8.1", "06/11/2026", [
         "Piloto automático sin tope de estrategias por moneda: cada estrategia que conviene se usa en todas las monedas "
         "donde convenga (antes, como mucho 2 por moneda).",

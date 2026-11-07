@@ -1,10 +1,6 @@
-"""Paper trading en vivo del portafolio (SIMULADO: no envía órdenes reales).
-
-  python paper_trader.py            # corre continuamente, evalúa cada hora al cierre de vela
-  python paper_trader.py --estado   # muestra el estado actual y sale
-  python paper_trader.py --reiniciar  # borra el estado y empieza de nuevo con el capital inicial
+"""Corazón del bot: estado, capital de cada parte, plan de estrategias y el modo simulado (sin órdenes reales).
+La app (app.py) lo corre en un hilo; live.py usa estas mismas funciones para operar en Binance.
 """
-import argparse
 import csv
 import json
 import os
@@ -92,7 +88,7 @@ def guardar_ajustes(**cambios):
 
 def estrategias_activas():
     a = leer_ajustes().get("activas")
-    a = [x for x in a if x in NOMBRES] if isinstance(a, list) else None
+    a = [x for x in a if x in NOMBRES and x not in K.RETIRADAS] if isinstance(a, list) else None
     return a or list(K.STRATEGIES)
 
 
@@ -125,18 +121,16 @@ def guardar_auto(activo=None, montos=None, modo=None):
 
 def plan(st, Ds, minimo=None):
     """Qué estrategias operan en cada moneda y con cuánto. En modo manual: las activadas, con los montos elegidos.
-    Con el piloto automático: las que convienen al tipo de mercado de cada moneda (ver auto.py)."""
+    Con el piloto automático: las estrategias base, con el capital repartido en partes iguales (ver auto.py)."""
     manual = estrategias_activas()
     if not modo_auto():
         st.pop("auto", None)
         return {a: list(manual) for a in K.SYMBOLS}, None
     import auto
     import mercado
-    hist = mercado.cargar()
-    if not hist:
-        log(t("Piloto automático: todavía no está calculado el historial de estrategias; se usan las estrategias activadas a mano."))
-        return {a: list(manual) for a in K.SYMBOLS}, None
-    return auto.plan(st, Ds, hist, log=log, reduccion=max(0.0, base_capital(st) - K.INITIAL_CAPITAL), minimo=minimo)
+    hist = mercado.cargar()  # sin historial todavía: usa las estrategias base y hace la revisión cuando esté listo
+    return auto.plan(st, hist, minimo=minimo, log=log, reduccion=max(0.0, base_capital(st) - K.INITIAL_CAPITAL),
+                     ahora=datetime.fromtimestamp(now_ms() / 1000))
 
 
 def configurar_modo(modo):
@@ -233,8 +227,9 @@ def aplicar_asignacion(st, activas, asig_auto=None):
     for diff, k, objetivo in sorted(pendientes):
         v, meta = st["sleeves"][k], objetivo
         if diff > st["libre"] + 1e-9:  # no alcanza el capital sin asignar
-            log(t("{k}: no alcanza el capital sin asignar para llevarla a {o} USDT; queda en {e} USDT.",
-                  k=k, o=num(objetivo), e=num(v["equity"] + st["libre"])))
+            if asig_auto is None:  # con el piloto es normal: se empareja en el reequilibrio del día siguiente
+                log(t("{k}: no alcanza el capital sin asignar para llevarla a {o} USDT; queda en {e} USDT.",
+                      k=k, o=num(objetivo), e=num(v["equity"] + st["libre"])))
             diff = st["libre"]
             objetivo = v["equity"] + diff
         st["libre"] -= diff
@@ -251,6 +246,13 @@ def aplicar_asignacion(st, activas, asig_auto=None):
         st["auto"]["ref"] = {k: v["equity"] for k, v in st["sleeves"].items()}
     st["efectivo"] = {"activas": act, "asignacion": {k: (asig.get(k, 0.0) if k.split("_", 1)[1] in act.get(k.split("_", 1)[0], [])
                                                           else 0.0) for k in st["sleeves"]}}
+
+
+def sumar_ordenes(st, d):
+    """Estadísticas de órdenes para la app: cantidad, cuántas se completaron a mercado y comisiones pagadas."""
+    o = st.setdefault("ordenes", dict(ordenes=0, mercado=0, comision=0.0, volumen=0.0, desde=now_ms()))
+    for k in ("ordenes", "mercado", "comision", "volumen"):
+        o[k] = o.get(k, 0) + d.get(k, 0)
 
 
 def repartir_capital(st, activas):  # compatibilidad con versiones anteriores
@@ -344,6 +346,7 @@ def step(ex, st):
             if new_idx:  # explicación de la decisión en la última vela cerrada
                 items.append(describir(asset, s, explain(D, new_idx[-1], s) if activa else [], sl, abrio, antes, activa))
             ss.update(equity=sl.equity, pos=sl.pos, pending=sl.pending)
+            sumar_ordenes(st, dict(ordenes=sl.ordenes, comision=sl.comisiones))
             total += sl.mark(prices[asset])
         if new_idx:
             st["last_bar"][asset] = D["T"][new_idx[-1]]
@@ -384,21 +387,6 @@ def show(st, prices=None, total=None):
     if total is not None:
         print(f" TOTAL (con posiciones abiertas): {total:.2f} USDT ({(total / K.INITIAL_CAPITAL - 1) * 100:+.2f}%)")
     print("=" * 72, flush=True)
-
-
-def status_text(st, prices=None, total=None):
-    lines = [f"Bot v2 (PAPER) | inicio {st['inicio']} | capital inicial {K.INITIAL_CAPITAL:.2f} USDT", ""]
-    tot = 0.0
-    for key, ss in st["sleeves"].items():
-        p = ss["pos"]
-        pr = prices.get(key.split("_")[0]) if prices else None
-        unreal = ((1 if p["side"] == "long" else -1) * (pr - p["e"]) * p["q"]) if (p and pr) else 0.0
-        tot += ss["equity"] + unreal
-        desc = (f"{p['side'].upper()} entrada {p['e']:.2f} stop {p['stop']:.2f} PnL abierto {unreal:+.2f}") if p else "sin posición"
-        lines.append(f"{key}: capital {ss['equity']:.2f} | {desc}")
-    total = tot if total is None else total
-    lines += ["", f"TOTAL: {total:.2f} USDT ({(total / K.INITIAL_CAPITAL - 1) * 100:+.2f}%)"]
-    return "\n".join(lines), total
 
 
 # Estado del bot para la aplicación (lo lee la interfaz)
@@ -442,21 +430,3 @@ def run_loop(st, stop_event=None, on_update=None, wake_event=None, paso=None, cl
             log(t("Revisión manual pedida desde la aplicación."))
     STATUS.update(estado="detenido", proxima_revision=None)
     log(t("Bot detenido."))
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--estado", action="store_true")
-    ap.add_argument("--reiniciar", action="store_true")
-    a = ap.parse_args()
-    if a.reiniciar and os.path.exists(K.STATE_FILE):
-        os.remove(K.STATE_FILE)
-    st = load_state()
-    if a.estado:
-        show(st); return
-
-    run_loop(st)
-
-
-if __name__ == "__main__":
-    main()

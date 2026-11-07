@@ -198,9 +198,6 @@ DESCRIPCIONES = {
 COLOR_REGIMEN = {"Tendencia alcista": GAIN, "Tendencia bajista": LOSS, "Lateral": AMBER}
 ACCIONES = {"abre": ("Abre", GAIN), "cierra": ("Cierra", ACCENT), "mantiene": ("Mantiene", AMBER),
             "no_abre": ("No abre", MUTED), "inactiva": ("Desactivada", MUTED)}
-NIVELES = {"si": ("Conviene ahora", GAIN), "debil": ("Ventaja débil", AMBER), "no": ("No conviene ahora", LOSS),
-           "sin_datos": ("Sin datos suficientes", MUTED)}
-
 URL_DEMO_FUTUROS = "https://demo.binance.com/es/futures/BTCUSDT"
 URL_DEMO_API = "https://demo.binance.com/es/my/settings/api-management"
 URL_REAL_API = "https://www.binance.com/es/my/settings/api-management"
@@ -221,17 +218,19 @@ GUIA = [
     ("Probá la conexión",
      "Tocá Probar conexión: muestra el saldo y el tamaño mínimo por orden de cada moneda. Después tocá Probar órdenes: "
      "compra lo mínimo de SOL, pone un stop, lo cancela y cierra. Tarda menos de un minuto.", []),
-    ("Elegí el capital y las estrategias",
-     "Definí abajo el capital del modo demo. En Estrategias, encendé el piloto automático para que el bot maneje solo "
-     "estrategias y montos, o activalas vos y elegí cuánto dinero usa en BTC, ETH y SOL. Binance pide un tamaño mínimo por orden, así que con "
-     "montos muy chicos el bot saltea señales.", []),
+    ("Elegí el capital y encendé el piloto",
+     "Definí abajo el capital del modo demo (en Estrategias, el panel del piloto te dice el capital mínimo recomendado). "
+     "Después encendé el piloto automático en Estrategias: usa Breakout y Resorte de tendencia en BTC, ETH y SOL y "
+     "reparte el capital solo, todos los días. Si preferís manejarlo vos, dejalo apagado y elegí estrategias y montos.", []),
     ("Pasá a Demo de Binance",
      "Tocá Demo de Binance en Modo de operación. El bot revisa el mercado 20 segundos después del cierre de cada vela "
      "de 1 hora, y cada posición queda con su stop puesto en Binance.", []),
     ("Dinero real, solo después",
-     "Recién después de varias semanas en demo. Creá la clave en la Gestión de API de tu cuenta real con permiso de "
-     "futuros y SIN permiso de retiros, restringida a la IP de tu conexión. Para activar el modo real hay que escribir "
-     "REAL.", [("Abrir Gestión de API de la cuenta real", URL_REAL_API)]),
+     "Recién después de al menos 4 semanas en demo, con resultados parecidos a la simulación (lo ves en Resumen → "
+     "Resultados por mes). Creá la clave en la Gestión de API de tu cuenta real con permiso de futuros, SIN permiso de "
+     "retiros y restringida a la IP de tu conexión, y tocá Probar conexión: la app verifica esos permisos. Antes de "
+     "activar el modo real te muestra una lista de control, y hay que escribir REAL.",
+     [("Abrir Gestión de API de la cuenta real", URL_REAL_API)]),
 ]
 
 
@@ -501,32 +500,14 @@ class MarketWorker(threading.Thread):
         except Exception:
             pass
 
-    def _avisar_cambios(self, anterior, nuevo):
-        """Revalidación semanal: avisa qué estrategias empezaron a empeorar o se recuperaron."""
-        import alertas
-        if not anterior or not any("estado" in d for d in anterior.get("estrategias", {}).values()):
-            anterior = None  # primer cálculo con esta versión: avisa solo las que hoy empeoran
-        for s, cambio in M.comparar(anterior, nuevo):
-            rec = nuevo["estrategias"][s].get("reciente", {})
-            nombre = M.nombre_estrategia(s)
-            sem = datetime.now().strftime("%Y-%W")
-            if cambio == "empeora":
-                alertas.agregar(f"empeora_{s}_{sem}", "empeora", t("{e} viene empeorando", e=nombre), t(
-                    "En los últimos {d} días perdió más de lo que ganó ({pf} en {n} operaciones), aunque en el historial "
-                    "completo funciona. El piloto automático no la usa hasta que se recupere; si la tenés activada a mano, "
-                    "fijate si conviene desactivarla.", d=M.DIAS_RECIENTE, pf=num(rec.get("pf")), n=rec.get("ops")),
-                    {"estrategia": s})
-            else:
-                alertas.agregar(f"recupera_{s}_{sem}", "recupera", t("{e} se recuperó", e=nombre), t(
-                    "En los últimos {d} días volvió a ganar más de lo que pierde ({pf} en {n} operaciones).",
-                    d=M.DIAS_RECIENTE, pf=num(rec.get("pf")), n=rec.get("ops")), {"estrategia": s})
-
     def _necesita_historial(self):
         h = self.historial
         from engine import STRATS
         faltan = h and any(s not in h.get("estrategias", {}) for s in STRATS)  # hay estrategias nuevas
-        viejo = h and any("estado" not in d for d in h.get("estrategias", {}).values())  # historial de antes de la 1.5
-        return self.recalcular.is_set() or not h or faltan or viejo or time.time() - h.get("calculado", 0) > 7 * 86400
+        viejo = h and h.get("version") != 2  # historial de antes de la 1.9 (sin resultado por año y semestre)
+        mes_nuevo = h and datetime.fromtimestamp(h.get("calculado", 0)).strftime("%Y-%m") != datetime.now().strftime("%Y-%m")
+        return (self.recalcular.is_set() or not h or faltan or viejo or mes_nuevo
+                or time.time() - h.get("calculado", 0) > 7 * 86400)
 
     def run(self):
         import ccxt
@@ -552,9 +533,7 @@ class MarketWorker(threading.Thread):
                     desde = int(datetime(2021, 12, 1).timestamp() * 1000)
                     h = M.calcular_historial(lambda a: fetch_range(ex, K.SYMBOLS[a], K.TIMEFRAME, desde, int(time.time() * 1000)),
                                              lambda f, x: setattr(self, "hist_prog", (f, x)))
-                    anterior = self.historial
                     M.guardar(h); self.historial = h; self.hist_estado = "listo"
-                    self._avisar_cambios(anterior, h)
                 except Exception as e:
                     self.hist_estado = "error"; self.hist_prog = (0.0, f"{type(e).__name__}: {e}"[:120])
             self.stop.wait(5)
@@ -919,7 +898,74 @@ class Ventana(QMainWindow):
         self.box_ultimas = QVBoxLayout(); self.box_ultimas.setSpacing(6); uov.addLayout(self.box_ultimas); uov.addStretch()
         bottom.addWidget(pa, 1); bottom.addWidget(uo, 1)
         v.addLayout(bottom)
+
+        fila2 = QHBoxLayout(); fila2.setSpacing(16)
+        pm = panel(); pmv = QVBoxLayout(pm); pmv.setContentsMargins(18, 14, 18, 14); pmv.setSpacing(8)
+        pmv.addWidget(lbl(t("Resultados por mes"), rol="titulo"))
+        pmv.addWidget(lbl(t("Cómo viene el bot cada mes, comparado con lo que daba la simulación de Breakout y Resorte de "
+                            "tendencia en el mismo mes (siempre prendidas, con comisión de orden límite). Sirve para ver si "
+                            "el bot se comporta como se esperaba antes de pasar a dinero real."),
+                          rol="muted", size=12, wrap=True))
+        self.tab_mes = tabla([t("Mes"), t("Saldo al cierre"), t("Bot"), t("Simulación"), t("Diferencia"),
+                              t("Caída máxima")])
+        self.tab_mes.setMinimumHeight(180); pmv.addWidget(self.tab_mes, 1)
+        self.lbl_dd = lbl("", rol="muted", size=12, wrap=True); pmv.addWidget(self.lbl_dd)
+        po = panel(); pov = QVBoxLayout(po); pov.setContentsMargins(18, 14, 18, 14); pov.setSpacing(8)
+        pov.addWidget(lbl(t("Órdenes y comisiones"), rol="titulo"))
+        pov.addWidget(lbl(t("Las órdenes límite pagan 0,02 % y las que se completan a mercado 0,05 %. Con muchas órdenes a "
+                            "mercado la ganancia baja bastante: en la simulación de 2023 a 2026, la mitad."),
+                          rol="muted", size=12, wrap=True))
+        self.lbl_ordenes = lbl("", size=13, wrap=True); pov.addWidget(self.lbl_ordenes); pov.addStretch()
+        fila2.addWidget(pm, 3); fila2.addWidget(po, 2)
+        v.addLayout(fila2)
         return w
+
+    def _llenar_mensual(self):
+        s = self.snap
+        meses, dd = s.get("mensual") or ([], 0.0)
+        hist = self.mkt.historial or {}
+        sim = {}
+        base = [x for x in K.PILOTO_BASE if x in (hist.get("estrategias") or {})]
+        hoy = datetime.now().strftime("%Y-%m")
+        for m in {x["mes"] for x in meses}:
+            vals = [hist["estrategias"][b].get("mensual", {}).get(m) for b in base]
+            if base and m < hoy and all(v is not None for v in vals):
+                sim[m] = sum(vals) / len(vals)
+        tb = self.tab_mes
+        filas = list(reversed(meses))[:24]
+        tb.setRowCount(len(filas))
+        for r, x in enumerate(filas):
+            celda(tb, r, 0, f"{x['mes'][5:]}/{x['mes'][:4]}" + (" " + t("(en curso)") if x["mes"] == hoy else ""), bold=True)
+            celda(tb, r, 1, usd(x["fin"]))
+            celda(tb, r, 2, pct(x["pct"], 1, True) if x["pct"] is not None else "—", color_de(x["pct"]))
+            sm = sim.get(x["mes"])
+            celda(tb, r, 3, pct(sm, 1, True) if sm is not None else "—", color_de(sm) if sm is not None else MUTED)
+            dif = (x["pct"] - sm) if (sm is not None and x["pct"] is not None) else None
+            celda(tb, r, 4, (pct(dif, 1, True) + " " + t("pts")) if dif is not None else "—",
+                  (GAIN if dif >= -2 else AMBER if dif >= -6 else LOSS) if dif is not None else MUTED)
+            celda(tb, r, 5, pct(x["dd"], 1) if x["dd"] else "—", MUTED)
+        self.lbl_dd.setText(t("Caída máxima desde el saldo más alto: {d}. El límite de pérdida frena al bot si la cuenta baja "
+                              "{l} desde el capital del modo.", d=pct(dd, 1), l=pct(K.LIMITE_PERDIDA * 100, 0))
+                            if meses else t("Los resultados aparecen cuando el bot lleve al menos una revisión en este modo."))
+        o = s.get("ordenes") or {}
+        n = o.get("ordenes", 0)
+        if not n:
+            self.lbl_ordenes.setText(t("Todavía no hay órdenes en este modo."))
+            self.lbl_ordenes.setStyleSheet(f"font-size:13px; color:{MUTED}")
+            return
+        txt = t("Órdenes: {n}. Comisiones pagadas: {c}.", n=n, c=usd(o.get("comision", 0)))
+        if o.get("volumen"):
+            txt += " " + t("Promedio: {p} por orden.", p=pct(o["comision"] / o["volumen"] * 100, 3))
+        col = TEXT
+        if K.MODO != "simulado":
+            pm_ = o.get("mercado", 0) / n * 100
+            txt += " " + t("Completadas a mercado: {m} ({p}).", m=o.get("mercado", 0), p=pct(pm_, 0))
+            if pm_ > 30:
+                col = AMBER
+                txt += " " + t("Son muchas: probá subir la espera de la orden límite en Configuración, sección Riesgo.")
+        else:
+            txt += " " + t("En modo simulado todas cuentan como orden límite.")
+        self.lbl_ordenes.setText(txt); self.lbl_ordenes.setStyleSheet(f"font-size:13px; color:{col}")
 
     def _set_rango(self, seg):
         self.rango = seg
@@ -1038,8 +1084,8 @@ class Ventana(QMainWindow):
     # ---------- estrategias
     def _pag_estrategias(self):
         w, v = self._pagina(t("Estrategias"), t(
-            "El mercado de cada moneda leído cada 5 minutos, cómo le fue a cada estrategia desde 2022 en momentos parecidos "
-            "al actual, y qué estrategias usa el bot y con cuánto dinero."))
+            "El piloto automático, qué estrategias usa el bot y con cuánto dinero, cómo le fue a cada una desde 2022, el "
+            "laboratorio de estrategias nuevas y el mercado de cada moneda."))
         inner = QWidget(); inner.setObjectName("pagina"); iv = QVBoxLayout(inner)
         iv.setContentsMargins(0, 0, 10, 0); iv.setSpacing(12)
         self.pan_avisos = QFrame(); self.pan_avisos.setObjectName("actualizacion")
@@ -1049,91 +1095,65 @@ class Ventana(QMainWindow):
         self.box_avisos = QVBoxLayout(); self.box_avisos.setSpacing(8); pav_.addLayout(self.box_avisos)
         self.pan_avisos.setVisible(False); iv.addWidget(self.pan_avisos)
         self._avisos_firma, self._avisos_vistos = None, None
-        h = QHBoxLayout(); h.addWidget(lbl(t("Mercado ahora"), rol="titulo")); h.addStretch()
-        self.lbl_mkt_upd = lbl("", rol="muted", size=12); h.addWidget(self.lbl_mkt_upd); iv.addLayout(h)
-        fila = QHBoxLayout(); fila.setSpacing(12); self.mkt_ui = {}
-        for a in K.SYMBOLS:
-            p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(16, 14, 16, 14); pv.setSpacing(5)
-            top = QHBoxLayout(); top.addWidget(lbl(a, size=18, weight=600, family=FONT)); top.addStretch()
-            c = lbl("", rol="chip"); chip(c, t("Leyendo…"), MUTED); top.addWidget(c); pv.addLayout(top)
-            l1, l2, l3 = (lbl("", rol="muted", size=12, wrap=True) for _ in range(3))
-            for x in (l1, l2, l3):
-                pv.addWidget(x)
-            pv.addSpacing(4)
-            res = lbl("", size=13, wrap=True); pv.addWidget(res)
-            rec = lbl("", size=13, wrap=True); pv.addWidget(rec); pv.addStretch()
-            self.mkt_ui[a] = (c, (l1, l2, l3), res, rec); fila.addWidget(p, 1)
-        iv.addLayout(fila); iv.addSpacing(6)
-
-        # modo de selección
+        # piloto automático
         pa = panel(); pav = QVBoxLayout(pa); pav.setContentsMargins(18, 14, 18, 14); pav.setSpacing(8)
         ha = QHBoxLayout(); ha.addWidget(lbl(t("Piloto automático"), rol="titulo")); ha.addStretch()
         self.sw_auto = QCheckBox(t("Piloto encendido")); self.sw_auto.setProperty("rol", "switch")
         self.sw_auto.setCursor(Qt.PointingHandCursor); self.sw_auto.clicked.connect(self._cambiar_auto)
         ha.addWidget(self.sw_auto); pav.addLayout(ha)
-        pav.addWidget(lbl(t("Con el piloto encendido el bot maneja todo solo, como si vos usaras la app: en cada revisión lee "
-                            "el tipo de mercado de cada moneda (si se mantiene 3 horas seguidas), prende las estrategias que "
-                            "convienen (todas las que ganaron al menos 1,10 veces lo que perdieron en ese tipo de mercado y no "
-                            "vienen empeorando, en cada moneda donde convengan), apaga las demás y reparte todo el capital, incluidas las ganancias, entre las que "
-                            "prendió: más dinero a las que mejor funcionan, sin pasar del 40 % en ninguna y respetando el "
-                            "mínimo de Binance. Vos solo elegís el capital del modo en Configuración. Las estrategias del "
-                            "laboratorio entran cuando las agregás a tus estrategias. Con el piloto apagado, manejás vos "
-                            "estrategias y montos."),
-                          rol="muted", size=12, wrap=True))
-        self.lbl_auto = lbl("", size=13, wrap=True); pav.addWidget(self.lbl_auto)
+        pav.addWidget(lbl(t("Con el piloto encendido el bot administra solo la cartera: usa Breakout y Resorte de tendencia "
+                            "en BTC, ETH y SOL, prendidas todo el tiempo, y una vez por día reparte todo el capital "
+                            "(incluidas las ganancias) en partes iguales, respetando el mínimo de Binance. Una vez por mes "
+                            "revisa que cada una haya ganado plata en los últimos 12 meses: si una falla 3 revisiones "
+                            "seguidas, le deja de dar dinero y te avisa. No cambia de estrategia según el tipo de mercado: "
+                            "en las simulaciones de 2023 a 2026 eso perdía contra dejarlas fijas. Con el piloto apagado "
+                            "manejás vos estrategias y montos."), rol="muted", size=12, wrap=True))
+        self.lbl_auto = lbl("", size=13, weight=600, wrap=True); pav.addWidget(self.lbl_auto)
+        self.w_auto_info = QWidget(); ga = QGridLayout(self.w_auto_info); ga.setContentsMargins(0, 2, 0, 2)
+        ga.setHorizontalSpacing(18); ga.setVerticalSpacing(6); self.auto_info = {}
+        for r, (k, tit) in enumerate([("uso", t("En uso")), ("reparto", t("Reparto")), ("reeq", t("Próximo reequilibrio")),
+                                      ("revision", t("Revisión mensual"))]):
+            ga.addWidget(lbl(tit, rol="muted", size=12), r, 0, Qt.AlignTop)
+            x = lbl("", size=13, wrap=True); ga.addWidget(x, r, 1); self.auto_info[k] = x
+        ga.setColumnStretch(1, 1); pav.addWidget(self.w_auto_info)
+        self.lbl_cap_min = lbl("", size=12, wrap=True); pav.addWidget(self.lbl_cap_min)
         iv.addWidget(pa)
 
-        # montos
-        pm = panel(); pmv = QVBoxLayout(pm); pmv.setContentsMargins(18, 14, 18, 14); pmv.setSpacing(8)
-        self.lbl_montos_tit = lbl(t("Dinero por estrategia y moneda"), rol="titulo"); pmv.addWidget(self.lbl_montos_tit)
-        self.lbl_montos_ayuda = lbl("", rol="muted", size=12, wrap=True); pmv.addWidget(self.lbl_montos_ayuda)
-        self.w_auto_montos = QWidget(); ham = QHBoxLayout(self.w_auto_montos); ham.setContentsMargins(0, 4, 0, 4)
-        ham.setSpacing(10); self.montos_auto = {}
-        for a in K.SYMBOLS:
-            ham.addWidget(lbl(a, size=13, weight=600))
-            sp = QDoubleSpinBox(); sp.setRange(0, 1_000_000); sp.setDecimals(2); sp.setSingleStep(10)
-            sp.setSuffix(NB + "USDT"); sp.setMinimumWidth(130); sp.setKeyboardTracking(False)
-            sp.valueChanged.connect(self._montos_editados)
-            ham.addWidget(con_pasos(sp)); ham.addSpacing(10); self.montos_auto[a] = sp
-        ham.addStretch(); pmv.addWidget(self.w_auto_montos)
+        # montos (modo manual)
+        self.pan_montos = pm = panel(); pmv = QVBoxLayout(pm); pmv.setContentsMargins(18, 14, 18, 14); pmv.setSpacing(8)
+        self.lbl_montos_tit = lbl(t("Dinero de las estrategias"), rol="titulo"); pmv.addWidget(self.lbl_montos_tit)
+        self.lbl_montos_ayuda = lbl(t("Elegí en cada estrategia cuántos USDT usa en BTC, ETH y SOL (más abajo, en su "
+                                      "tarjeta). Cada monto pasa a ser el capital de esa parte y desde ahí reinvierte sus "
+                                      "ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición abierta, "
+                                      "el monto nuevo se aplica cuando la cierre."), rol="muted", size=12, wrap=True)
+        pmv.addWidget(self.lbl_montos_ayuda)
         self.lbl_montos = lbl("", size=13, wrap=True); pmv.addWidget(self.lbl_montos)
         self.w_botones_montos = QWidget(); hb = QHBoxLayout(self.w_botones_montos); hb.setContentsMargins(0, 0, 0, 0)
         hb.setSpacing(8)
         self.btn_guardar_montos = boton(t("Guardar montos"), "primario", self._guardar_montos)
         hb.addWidget(self.btn_guardar_montos)
         hb.addWidget(boton(t("Repartir en partes iguales"), accion=self._repartir_montos,
-                           tip=t("Divide todo el saldo disponible en partes iguales.")))
+                           tip=t("Divide todo el saldo disponible en partes iguales entre las estrategias activas.")))
         self.btn_deshacer_montos = boton(t("Deshacer cambios"), accion=lambda: self._llenar_montos(forzar=True))
         hb.addWidget(self.btn_deshacer_montos); hb.addStretch()
         pmv.addWidget(self.w_botones_montos)
         self.lbl_minimos = lbl("", rol="muted", size=12, wrap=True); pmv.addWidget(self.lbl_minimos)
         iv.addWidget(pm); iv.addSpacing(6)
 
-        # laboratorio
-        pl = panel(); plv = QVBoxLayout(pl); plv.setContentsMargins(18, 14, 18, 14); plv.setSpacing(8)
-        hl_ = QHBoxLayout(); hl_.addWidget(lbl(t("Laboratorio de estrategias"), rol="titulo")); hl_.addStretch()
-        self.sw_lab = QCheckBox(t("Activo")); self.sw_lab.setProperty("rol", "switch"); self.sw_lab.setCursor(Qt.PointingHandCursor)
-        self.sw_lab.clicked.connect(self._cambiar_lab); hl_.addWidget(self.sw_lab); plv.addLayout(hl_)
-        plv.addWidget(lbl(t(
-            "Busca estrategias nuevas combinando las piezas que ya usa el bot (filtros de tendencia, disparos de entrada, "
-            "salidas y stops). Las elige con velas de 2022 a 2024 y las prueba con velas de 2025 a hoy, que no usó para "
-            "elegirlas: solo propone las que ganan en esa prueba en al menos 2 de las 3 monedas y en 3 de cada 4 años. "
-            "Corre en segundo plano cada 6 horas durante 20 minutos, con prioridad baja. Las candidatas nunca operan "
-            "solas: vos decidís si agregarlas."), rol="muted", size=12, wrap=True))
-        hb_ = QHBoxLayout(); hb_.setSpacing(8)
-        self.lbl_lab = lbl("", size=13, wrap=True); hb_.addWidget(self.lbl_lab, 1)
-        self.btn_lab = boton(t("Buscar ahora"), accion=lambda: self._lanzar_lab(manual=True)); hb_.addWidget(self.btn_lab)
-        plv.addLayout(hb_)
-        self.box_cand = QVBoxLayout(); self.box_cand.setSpacing(10); plv.addLayout(self.box_cand)
-        iv.addWidget(pl); iv.addSpacing(6)
-        self._cand_firma = None
-
+        # estrategias
         h = QHBoxLayout(); h.addWidget(lbl(t("Estrategias disponibles"), rol="titulo")); h.addStretch()
         self.lbl_hist = lbl("", rol="muted", size=12); h.addWidget(self.lbl_hist)
         self.btn_hist = boton(t("Recalcular historial"), accion=self.mkt.recalcular.set)
         h.addWidget(self.btn_hist); iv.addLayout(h)
+        iv.addWidget(lbl(t("Resultado de cada año y de los últimos 4 semestres con la estrategia siempre prendida, en "
+                           "promedio de BTC, ETH y SOL, con el mismo riesgo y comisiones que usa el bot. La revisión mensual "
+                           "del piloto mira los últimos 12 meses (los 2 semestres más recientes)."),
+                         rol="muted", size=12, wrap=True))
         self.estr_ui, self.montos, self.montos_w, self.filas_monto = {}, {}, {}, {}
+        anios = [str(y) for y in range(2022, datetime.now().year + 1)]
         for k, nombre in PT.NOMBRES.items():
+            if k in K.RETIRADAS:
+                continue
             p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(18, 14, 18, 14); pv.setSpacing(8)
             top = QHBoxLayout(); top.setSpacing(10); top.addWidget(lbl(M.nombre_estrategia(k), rol="titulo"))
             rec = lbl("", rol="chip"); top.addWidget(rec); top.addStretch()
@@ -1146,18 +1166,18 @@ class Ventana(QMainWindow):
                 import catalogo
                 dd = catalogo.DEFINICIONES[k]
                 desc = catalogo.descripcion(dd, i18n.LANG)
-                origen = t("Agregada por vos desde el laboratorio.") if dd.get("_origen") == "mis_estrategias" else \
-                    t("Estrategia del catálogo de la app.")
+                origen = t("Agregada por vos desde el laboratorio: el piloto automático no la usa, la podés activar a "
+                           "mano.") if dd.get("_origen") == "mis_estrategias" else t("Estrategia del catálogo de la app.")
                 desc += " " + origen
             pv.addWidget(lbl(desc, size=13, wrap=True))
             porque = lbl("", size=13, wrap=True); pv.addWidget(porque)
-            g = QGridLayout(); g.setHorizontalSpacing(28); g.setVerticalSpacing(2); celdas = {}
-            for c, r in enumerate(M.REGIMENES + ["Total", "Reciente"]):
-                tit = (t("Todo el período") if r == "Total" else t("Últimos {d} días", d=M.DIAS_RECIENTE)
-                       if r == "Reciente" else t(r))
-                g.addWidget(lbl(tit, rol="muted", size=12), 0, c)
-                x = lbl("—", size=13); g.addWidget(x, 1, c); celdas[r] = x
-            g.setColumnStretch(5, 1); pv.addLayout(g)
+            g = QGridLayout(); g.setHorizontalSpacing(24); g.setVerticalSpacing(2); celdas = {}
+            for c, y in enumerate(anios):
+                g.addWidget(lbl(y + (" " + t("(en curso)") if y == anios[-1] else ""), rol="muted", size=12), 0, c)
+                x = lbl("—", size=13); g.addWidget(x, 1, c); celdas[y] = x
+            g.addWidget(lbl(t("Últimos 4 semestres (el más reciente primero)"), rol="muted", size=12), 0, len(anios))
+            x = lbl("—", size=13); g.addWidget(x, 1, len(anios)); celdas["semestres"] = x
+            g.setColumnStretch(len(anios) + 1, 1); pv.addLayout(g)
             mw = QWidget(); mh = QHBoxLayout(mw); mh.setContentsMargins(0, 0, 0, 0); mh.setSpacing(10)
             mh.addWidget(lbl(t("Monto por moneda"), rol="muted", size=12))
             for a in K.SYMBOLS:
@@ -1170,31 +1190,74 @@ class Ventana(QMainWindow):
             import catalogo
             if catalogo.DEFINICIONES.get(k, {}).get("_origen") == "mis_estrategias":
                 hq = QHBoxLayout(); hq.addStretch()
-                hq.addWidget(boton(t("Proponer para todos"), accion=lambda _=False, k=k: self._proponer(catalogo.DEFINICIONES[k])))
                 hq.addWidget(boton(t("Quitar de mis estrategias"), "peligro", lambda _=False, k=k: self._quitar_propia(k)))
                 pv.addLayout(hq)
             self.estr_ui[k] = (sw, rec, porque, celdas); iv.addWidget(p)
-        iv.addWidget(lbl(t("Cada celda muestra el factor de ganancia (lo ganado dividido lo perdido: más de 1 es positivo) y "
-                           "cuántas operaciones hubo, sumando BTC, ETH y SOL con el mismo riesgo y comisiones que usa el "
-                           "bot. Con menos de {n} operaciones el dato no es confiable.", n=M.MIN_OPS),
+        iv.addWidget(lbl(t("Reversión a la media y RSI(2) se retiraron: perdieron plata todos los años desde 2023. Si tenían "
+                           "una posición abierta, el bot la maneja hasta cerrarla."), rol="muted", size=12, wrap=True))
+        iv.addSpacing(6)
+
+        # laboratorio
+        pl = panel(); plv = QVBoxLayout(pl); plv.setContentsMargins(18, 14, 18, 14); plv.setSpacing(8)
+        hl_ = QHBoxLayout(); hl_.addWidget(lbl(t("Laboratorio de estrategias"), rol="titulo")); hl_.addStretch()
+        self.sw_lab = QCheckBox(t("Activo")); self.sw_lab.setProperty("rol", "switch"); self.sw_lab.setCursor(Qt.PointingHandCursor)
+        self.sw_lab.clicked.connect(self._cambiar_lab); hl_.addWidget(self.sw_lab); plv.addLayout(hl_)
+        plv.addWidget(lbl(t(
+            "Busca estrategias nuevas combinando las piezas que ya usa el bot (filtros de tendencia, disparos de entrada, "
+            "salidas y stops). Las elige con velas de 2022 a 2024 y las prueba con velas de 2025 a hoy, que no usó para "
+            "elegirlas: solo propone las que ganan en esa prueba en al menos 2 de las 3 monedas, en cada semestre "
+            "completo menos uno como mucho, y en los últimos 12 meses. Corre en segundo plano cada 6 horas durante 20 "
+            "minutos, con prioridad baja. Las candidatas nunca operan solas: si agregás una, la podés activar a mano y en "
+            "su tarjeta ves cómo le va desde que se descubrió. El piloto automático no las usa."),
+            rol="muted", size=12, wrap=True))
+        hb_ = QHBoxLayout(); hb_.setSpacing(8)
+        self.lbl_lab = lbl("", size=13, wrap=True); hb_.addWidget(self.lbl_lab, 1)
+        self.btn_lab = boton(t("Buscar ahora"), accion=lambda: self._lanzar_lab(manual=True)); hb_.addWidget(self.btn_lab)
+        plv.addLayout(hb_)
+        self.box_cand = QVBoxLayout(); self.box_cand.setSpacing(10); plv.addLayout(self.box_cand)
+        iv.addWidget(pl); iv.addSpacing(6)
+        self._cand_firma = None
+
+        # mercado (solo información)
+        h = QHBoxLayout(); h.addWidget(lbl(t("Mercado ahora"), rol="titulo")); h.addStretch()
+        self.lbl_mkt_upd = lbl("", rol="muted", size=12); h.addWidget(self.lbl_mkt_upd); iv.addLayout(h)
+        iv.addWidget(lbl(t("Solo información: el piloto automático no cambia de estrategia según el tipo de mercado."),
                          rol="muted", size=12, wrap=True))
+        fila = QHBoxLayout(); fila.setSpacing(12); self.mkt_ui = {}
+        for a in K.SYMBOLS:
+            p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(16, 14, 16, 14); pv.setSpacing(5)
+            top = QHBoxLayout(); top.addWidget(lbl(a, size=18, weight=600, family=FONT)); top.addStretch()
+            c = lbl("", rol="chip"); chip(c, t("Leyendo…"), MUTED); top.addWidget(c); pv.addLayout(top)
+            l1, l2, l3 = (lbl("", rol="muted", size=12, wrap=True) for _ in range(3))
+            for x in (l1, l2, l3):
+                pv.addWidget(x)
+            pv.addSpacing(4)
+            res = lbl("", size=13, wrap=True); pv.addWidget(res); pv.addStretch()
+            self.mkt_ui[a] = (c, (l1, l2, l3), res); fila.addWidget(p, 1)
+        iv.addLayout(fila)
         iv.addStretch()
         v.addWidget(scroll(inner), 1)
         return w
 
+    def _capital_minimo(self, partes):
+        """Capital que hace falta para que todas las partes lleguen al mínimo de Binance con el reparto en partes iguales
+        (con un margen del 25 % para cuando el mercado se mueve más)."""
+        mins = [self._monto_minimo(k, a) for k, a in partes]
+        mins = [m for m in mins if m]
+        return (len(partes) * max(mins) * 1.25) if mins and len(mins) == len(partes) else None
+
     def _llenar_estrategias(self):
+        import auto as AU
         mk, hist, ahora = self.mkt, self.mkt.historial, time.time()
         if mk.actualizado:
             self.lbl_mkt_upd.setText(t("Actualizado hace {d}", d=A.fmt_dur(ahora - mk.actualizado)) if ahora - mk.actualizado >= 60
                                      else t("Actualizado hace menos de 1 minuto"))
         elif mk.error:
             self.lbl_mkt_upd.setText(t("No se pudo leer el mercado. Reintenta en 5 minutos."))
-        regimenes = {}
-        for a, (c, lineas, res, rec) in self.mkt_ui.items():
+        for a, (c, lineas, res) in self.mkt_ui.items():
             an = mk.analisis.get(a)
             if not an:
                 continue
-            regimenes[a] = an["regimen"]
             chip(c, t(an["regimen"]), COLOR_REGIMEN[an["regimen"]])
             pos = an["pos_rango48"]
             zona = t("cerca del máximo") if pos > 80 else t("cerca del mínimo") if pos < 20 else t("en la mitad")
@@ -1203,19 +1266,6 @@ class Ventana(QMainWindow):
                                 d=t(an["tendencia_4h"])))
             lineas[2].setText(t("Rango de 48 h: {z} ({p})", z=zona, p=pct(pos, 0)))
             res.setText(an["resumen"])
-            ranking = M.recomendar(hist, an["regimen"])
-            mejor = next((f for f in ranking if f["recomendable"]), None)
-            if not hist:
-                rec.setText(t("La recomendación aparece cuando termine de calcularse el historial."))
-                rec.setStyleSheet(f"font-size:13px; color:{MUTED}")
-            elif mejor:
-                rec.setText(t("Mejor para este mercado: {e}. Ganó {pf} veces lo que perdió, en {n} operaciones.",
-                              e=M.nombre_estrategia(mejor["estrategia"]), pf=num(mejor["pf"]), n=mejor["ops"]))
-                rec.setStyleSheet(f"font-size:13px; font-weight:600; color:{GAIN}")
-            else:
-                rec.setText(t("Ninguna estrategia tuvo una ventaja clara en este tipo de mercado. Conviene operar con "
-                              "cautela o no operar."))
-                rec.setStyleSheet(f"font-size:13px; font-weight:600; color:{AMBER}")
         if mk.hist_estado == "calculando":
             f, x = mk.hist_prog
             self.lbl_hist.setText(t("Calculando historial ({p}): {x}", p=pct(f * 100, 0), x=x))
@@ -1230,67 +1280,140 @@ class Ventana(QMainWindow):
         self.sw_auto.blockSignals(True); self.sw_auto.setChecked(bool(auto)); self.sw_auto.blockSignals(False)
         self.sw_auto.setText(t("Piloto encendido") if auto else t("Piloto apagado"))
         por_moneda = self.snap.get("activas_moneda") or {}
+        au = self.snap.get("auto_estado") or {}
+        base = [s for s in K.PILOTO_BASE if s in PT.NOMBRES]
+        self.w_auto_info.setVisible(bool(auto))
+        self.pan_montos.setVisible(not auto)
         if auto:
-            ae = self.snap.get("auto_estado") or {}
-            sel, regs = ae.get("seleccion", {}), ae.get("regimen", {})
-            if not sel:
-                self.lbl_auto.setText(t("Piloto automático encendido. El bot elige estrategias y montos en la próxima revisión."))
+            dentro = au.get("dentro") if au.get("dentro") is not None else base
+            asig, afuera = au.get("asig") or {}, au.get("afuera") or []
+            if "dentro" not in au:
+                self.lbl_auto.setText(t("Piloto encendido. Arma la cartera en la próxima revisión del bot (en segundos)."))
             else:
-                partes = []
-                for a in K.SYMBOLS:
-                    ss = sel.get(a, [])
-                    nom = ", ".join(M.nombre_estrategia(x) for x in ss) if ss else t("ninguna (no abre operaciones nuevas)")
-                    partes.append(t("{a} ({r}): {e}", a=a, r=t(regs.get(a) or "—").lower(), e=nom))
-                self.lbl_auto.setText(t("Ahora usa:") + " " + "; ".join(partes) + ".")
-            self.lbl_auto.setStyleSheet(f"font-size:13px; color:{ACCENT}")
+                self.lbl_auto.setText(t("Piloto encendido: administra {n} partes con {d}.", n=len(asig),
+                                        d=usd(sum(asig.values()))))
+            self.lbl_auto.setStyleSheet(f"font-size:13px; font-weight:600; color:{ACCENT}")
+            self.auto_info["uso"].setText(", ".join(M.nombre_estrategia(s) for s in dentro) + " " + t("en BTC, ETH y SOL")
+                                          if dentro else t("Ninguna: todas fallaron la revisión mensual."))
+            if asig:
+                m = next(iter(asig.values()))
+                txt = t("{n} partes de {m} cada una: {l}.", n=len(asig), m=usd(m),
+                        l=", ".join(f"{k.split('_', 1)[0]} {M.nombre_estrategia(k.split('_', 1)[1])}" for k in asig))
+                if afuera:
+                    txt += " " + t("Sin monto porque no llegan al mínimo de Binance: {l}.", l=", ".join(
+                        f"{k.split('_', 1)[0]} {M.nombre_estrategia(k.split('_', 1)[1])}" for k in afuera))
+                self.auto_info["reparto"].setText(txt)
+                self.auto_info["reparto"].setStyleSheet(f"font-size:13px; color:{AMBER if afuera else TEXT}")
+            else:
+                self.auto_info["reparto"].setText(t("Todavía sin repartir."))
+            px = AU.proximo_reequilibrio(au)
+            self.auto_info["reeq"].setText(t("{f}, en la primera revisión del día. Reparte todo el capital, incluidas las "
+                                             "ganancias, en partes iguales.", f=f"{px:%d/%m}") if px else t("En la próxima revisión."))
+            lineas = []
+            rev = au.get("revision") or {}
+            for s in base:
+                r = rev.get(s) or {}
+                ok, sem = (r.get("califica"), r.get("semestres") or []) if r else M.califica(hist, s)
+                ua = M.ultimo_anio(sem)
+                fallas = (au.get("racha") or {}).get(s, 0)
+                if ok is None:
+                    estado = t("todavía sin historial suficiente para juzgarla")
+                elif s in dentro:
+                    estado = (t("últimos 12 meses {p}: pasa", p=pct(ua, 1, True)) if ok else
+                              t("últimos 12 meses {p}: falló {r} de {n} revisiones seguidas", p=pct(ua, 1, True), r=fallas,
+                                n=AU.MESES_HISTERESIS))
+                else:
+                    estado = t("afuera; últimos 12 meses {p}, pasó {r} de {n} revisiones seguidas para volver",
+                               p=pct(ua, 1, True), r=fallas, n=AU.MESES_HISTERESIS)
+                lineas.append(f"{M.nombre_estrategia(s)}: {estado}")
+            hecha = au.get("revision_hora")
+            pr = AU.proxima_revision(au)
+            self.auto_info["revision"].setText(
+                (t("Última: {f}.", f=f"{datetime.fromtimestamp(hecha):%d/%m/%Y}") + " " if hecha else "") +
+                t("Próxima: {f}.", f=f"{pr:%d/%m/%Y}") + "\n" + "\n".join(lineas))
+            partes = [(s, a) for s in dentro for a in K.SYMBOLS]
         else:
-            self.lbl_auto.setText(t("Modo manual: usa las estrategias que actives abajo, con los montos que elijas."))
-            self.lbl_auto.setStyleSheet(f"font-size:13px; color:{TEXT}")
+            self.lbl_auto.setText(t("Piloto apagado: usa las estrategias que actives abajo, con los montos que elijas."))
+            self.lbl_auto.setStyleSheet(f"font-size:13px; font-weight:600; color:{TEXT}")
+            partes = [(s, a) for s in activas for a in K.SYMBOLS]
+        cm = self._capital_minimo(partes) if partes and K.MODO != "simulado" else None
+        if cm:
+            disp = self._disponible()
+            ok_cap = disp >= cm
+            self.lbl_cap_min.setText(t("Capital mínimo recomendado para usar las {n} partes: {c} (hoy el bot tiene {d}). Con "
+                                       "menos, a las partes de BTC no les alcanza para el mínimo de Binance cuando el mercado "
+                                       "se mueve mucho y quedan sin operar.", n=len(partes), c=usd(cm, 0), d=usd(disp, 0)))
+            self.lbl_cap_min.setStyleSheet(f"font-size:12px; color:{MUTED if ok_cap else AMBER}")
+            self.lbl_cap_min.setVisible(True)
+        else:
+            self.lbl_cap_min.setVisible(False)
+        import catalogo
         for k, (sw, rec, porque, celdas) in self.estr_ui.items():
             if auto:
                 usan = [a for a in K.SYMBOLS if k in por_moneda.get(a, [])]
                 sw.blockSignals(True); sw.setChecked(bool(usan)); sw.blockSignals(False)
                 sw.setText(t("En uso en {m}", m=", ".join(usan)) if usan else t("Sin usar"))
-                sw.setEnabled(False); sw.setToolTip(t("Con el piloto automático encendido, el bot prende y apaga las estrategias."))
+                sw.setEnabled(False); sw.setToolTip(t("Con el piloto automático encendido, el bot decide qué estrategias usa."))
             else:
                 sw.blockSignals(True); sw.setChecked(k in activas); sw.blockSignals(False)
                 sw.setText(t("Activa") if k in activas else t("Inactiva"))
                 sw.setEnabled(True); sw.setToolTip("")
             self.filas_monto[k].setVisible(not auto)
-            if regimenes:
-                nivel, texto = M.evaluar(hist, k, regimenes)
+            dd = catalogo.DEFINICIONES.get(k, {})
+            if k in base:
+                chip(rec, t("Base del piloto"), ACCENT)
+            elif dd.get("_origen") == "mis_estrategias":
+                chip(rec, t("Del laboratorio"), AMBER)
             else:
-                nivel, texto = "sin_datos", t("Esperando la lectura del mercado…")
-            txt, col = NIVELES[nivel]
-            chip(rec, t(txt), col)
-            porque.setText(texto)
-            porque.setStyleSheet(f"font-size:13px; color:{col if nivel != 'sin_datos' else MUTED}")
-            if hist and k in hist["estrategias"]:
-                for r, x in celdas.items():
-                    d = (hist["estrategias"][k].get("reciente", {}) if r == "Reciente"
-                         else hist["estrategias"][k]["regimenes"].get(r, {}))
-                    if not d.get("ops"):
-                        x.setText(t("Sin operaciones")); x.setStyleSheet(f"font-size:13px; color:{MUTED}"); continue
-                    pf = d.get("pf")
-                    conf = d["ops"] >= M.MIN_OPS
-                    x.setText(t("{pf} en {n} operaciones", pf=num(pf) if pf is not None else "—", n=d["ops"]))
-                    colx = (GAIN if pf and pf >= M.PF_RECOMENDABLE else LOSS if pf and pf < 1 else TEXT) if conf else MUTED
-                    x.setStyleSheet(f"font-size:13px; color:{colx}")
+                chip(rec, t("Opcional"), MUTED)
+            d = (hist or {}).get("estrategias", {}).get(k)
+            if not d or "anios" not in d:
+                porque.setText(t("Los resultados aparecen cuando termine de calcularse el historial."))
+                porque.setStyleSheet(f"font-size:13px; color:{MUTED}")
+            else:
+                ok, sem = M.califica(hist, k)
+                ua = M.ultimo_anio(sem)
+                if ok is None:
+                    txt, col = t("Historial insuficiente para la revisión mensual (hacen falta 2 años)."), MUTED
+                elif ok:
+                    txt, col = t("Ganó {p} en los últimos 12 meses: pasa la revisión mensual.", p=pct(ua, 1, True)), GAIN
+                else:
+                    txt, col = t("Perdió {p} en los últimos 12 meses: no pasa la revisión mensual.", p=pct(ua, 1, True)), LOSS
+                if dd.get("_origen") == "mis_estrategias":
+                    desde = dd.get("descubierta") or self._fecha_archivo(k)
+                    if desde:
+                        mes0 = datetime.fromtimestamp(desde).strftime("%Y-%m")
+                        r = 1.0
+                        ms = [v for mm, v in d.get("mensual", {}).items() if mm >= mes0]
+                        for v in ms:
+                            r *= 1 + v / 100
+                        txt += " " + t("Desde que se descubrió ({f}): {p}.", f=f"{datetime.fromtimestamp(desde):%d/%m/%Y}",
+                                       p=pct((r - 1) * 100, 1, True))
+                porque.setText(txt); porque.setStyleSheet(f"font-size:13px; color:{col}")
+                for y, x in celdas.items():
+                    if y == "semestres":
+                        x.setText("  ·  ".join(pct(v, 0, True) for v in sem) if sem else "—")
+                        x.setStyleSheet(f"font-size:13px; color:{TEXT}")
+                        continue
+                    v = d["anios"].get(y)
+                    x.setText(pct(v, 0, True) if v is not None else "—")
+                    x.setStyleSheet(f"font-size:13px; color:{color_de(v) if v is not None else MUTED}")
             for a in K.SYMBOLS:
                 self.montos_w[(k, a)].setEnabled(k in activas)
-        self.w_auto_montos.setVisible(False)  # en automático el capital se reparte solo
-        self.w_botones_montos.setVisible(not auto)
-        self.lbl_montos_tit.setText(t("Dinero de las estrategias"))
-        self.lbl_montos_ayuda.setText(
-            t("Con el piloto automático el bot usa todo el capital (el del modo más lo que vaya ganando) y lo reparte entre "
-              "las estrategias que prendió en las tres monedas: más a las que mejor funcionan en el mercado actual, sin "
-              "pasar del 40 % en ninguna. Una parte que no llega al mínimo de Binance se deja afuera y su dinero va a las "
-              "otras. Para cambiar cuánto usa en total, cambiá el capital del modo en Configuración.")
-            if auto else
-            t("Elegí en cada estrategia cuántos USDT usa en BTC, ETH y SOL. Cada monto pasa a ser el capital de esa parte "
-              "y desde ahí reinvierte sus ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición "
-              "abierta, el monto nuevo se aplica cuando la cierre."))
         self._llenar_montos()
+
+    def _fecha_archivo(self, k):
+        import catalogo
+        creada = catalogo.DEFINICIONES.get(k, {}).get("creada")
+        if creada:
+            try:
+                return datetime.strptime(creada, "%Y-%m-%d %H:%M").timestamp()
+            except ValueError:
+                pass
+        try:
+            return os.path.getmtime(os.path.join("mis_estrategias", k + ".json"))
+        except OSError:
+            return None
 
     # ---------- laboratorio (laboratorio.py)
     def _lab_ajustes(self):
@@ -1405,9 +1528,6 @@ class Ventana(QMainWindow):
             hb.addWidget(boton(t("Agregar a mis estrategias"), "primario", lambda _=False, d=d: self._agregar_candidata(d)))
             hb.addWidget(boton(t("Descartar"), accion=lambda _=False, d=d: self._descartar_candidata(d)))
             hb.addStretch()
-            hb.addWidget(boton(t("Proponer para todos"), accion=lambda _=False, d=d: self._proponer(d),
-                               tip=t("Abre una propuesta en GitHub con esta estrategia para que se sume al catálogo de "
-                                     "todos los usuarios.")))
             cv.addLayout(hb)
             self.box_cand.addWidget(c)
 
@@ -1445,20 +1565,6 @@ class Ventana(QMainWindow):
             return
         catalogo.quitar_propia(k)
         self.reiniciar_app()
-
-    def _proponer(self, d):
-        """Abre en el navegador una propuesta en GitHub (la envía el usuario con su cuenta: la app no sube nada)."""
-        import urllib.parse
-        import catalogo
-        import reglas
-        limpio = {k: v for k, v in d.items() if not k.startswith("_")}
-        v = d.get("validacion", {})
-        cuerpo = (f"Estrategia propuesta desde la app (versión {K.VERSION}).\n\n**{catalogo.nombre(d, 'es')}**\n\n"
-                  f"{reglas.describir(d)}\n\nValidación: entrenamiento {v.get('entreno')}, prueba {v.get('prueba')}, "
-                  f"por moneda {v.get('por_moneda')}.\n\n```json\n{json.dumps(limpio, ensure_ascii=False, indent=1)}\n```\n")
-        url = (f"https://github.com/{K.REPO}/issues/new?" +
-               urllib.parse.urlencode({"title": f"Propuesta de estrategia: {catalogo.nombre(d, 'es')}", "body": cuerpo[:6000]}))
-        QDesktopServices.openUrl(QUrl(url))
 
     # ---------- avisos (alertas.py)
     def _llenar_avisos(self):
@@ -1504,10 +1610,6 @@ class Ventana(QMainWindow):
             self._llenando_montos = True
             for (k, a), sp in self.montos.items():
                 sp.setValue(float(asig.get(f"{a}_{k}", 0.0)))
-            import auto as AU
-            ma = self.snap.get("auto_montos") or AU.montos_por_defecto(asig, self.snap["activas"], self._disponible())
-            for a, sp in self.montos_auto.items():
-                sp.setValue(float(ma.get(a, 0.0)))
             self._llenando_montos = False
             self._montos_sucios = False
         self._resumen_montos()
@@ -1531,28 +1633,9 @@ class Ventana(QMainWindow):
         disp, asig = self._disponible(), self._suma_montos()
         resto = disp - asig
         if self.snap and self.snap.get("auto"):
-            partes = sum(len(v) for v in (self.snap.get("activas_moneda") or {}).values())
-            ef = self.snap.get("asignacion_efectiva") or {}
-            detalle = ", ".join(f"{M.nombre_estrategia(k.split('_', 1)[1])} {k.split('_', 1)[0]}: {usd(v)}"
-                                for k, v in sorted(ef.items(), key=lambda x: -x[1]) if v > 0)
-            txt = ((t("Usa {d}, repartido en {n} partes:", d=usd(disp), n=partes) + " " + detalle + "."
-                    if detalle else t("Usa {d}, repartido en {n} partes.", d=usd(disp), n=partes))
-                   if partes else t("Ninguna estrategia conviene ahora: los {d} quedan sin usar hasta que cambie el "
-                                    "mercado.", d=usd(disp)))
-            self.lbl_montos.setText(txt); self.lbl_montos.setStyleSheet(f"font-size:13px; color:{TEXT}")
-            bajos = []
-            if partes:
-                for a, sel in (self.snap.get("activas_moneda") or {}).items():
-                    for k in sel:
-                        mn = self._monto_minimo(k, a)
-                        v = ef.get(f"{a}_{k}", disp / partes)
-                        if mn and v < mn:
-                            bajos.append((k, a, v, mn))
-            self._texto_minimos(bajos)
-            return
-        else:
-            txt = t("Disponible: {d} (capital del modo más resultado cerrado). Asignado a estrategias activas: {a}. "
-                    "Sin asignar: {r}.", d=usd(disp), a=usd(asig), r=usd(resto))
+            return  # con el piloto encendido los montos se ven en el panel del piloto
+        txt = t("Disponible: {d} (capital del modo más resultado cerrado). Asignado a estrategias activas: {a}. "
+                "Sin asignar: {r}.", d=usd(disp), a=usd(asig), r=usd(resto))
         if resto < -0.005:
             txt += " " + t("Te pasaste por {x}: bajá algún monto antes de guardar.", x=usd(-resto))
             col = LOSS
@@ -1566,7 +1649,7 @@ class Ventana(QMainWindow):
         self.btn_deshacer_montos.setEnabled(self._montos_sucios)
         self._texto_minimos()
 
-    def _texto_minimos(self, partes_auto=None):
+    def _texto_minimos(self):
         if K.MODO == "simulado":
             self.lbl_minimos.setText(t("En modo simulado no hay tamaño mínimo por orden. En Binance sí: con montos muy "
                                        "chicos el bot saltea las señales que no llegan al mínimo."))
@@ -1580,7 +1663,7 @@ class Ventana(QMainWindow):
                 "riesgo ({r}) dividido la distancia al stop, así que el monto mínimo cambia con la volatilidad. Pasá el "
                 "mouse por cada monto para ver el mínimo de hoy.", m=", ".join(f"{a} {usd(c, 0)}" for a, c in mins.items()),
                 r=pct(K.RISK_PER_TRADE * 100, 0))
-        bajos = self._marcar_minimos() if partes_auto is None else partes_auto
+        bajos = self._marcar_minimos()
         if bajos:
             txt += " " + t("Hoy no llegan al mínimo, y el bot va a saltear sus señales: {l}.", l="; ".join(
                 f"{a} {M.nombre_estrategia(k)} ({usd(v, 0)}, {t('mínimo')} {usd(mn, 0)})" for k, a, v, mn in bajos))
@@ -1632,11 +1715,9 @@ class Ventana(QMainWindow):
                 aviso(self, t("Montos"), t("La suma de los montos supera lo disponible por {x}.", x=usd(-resto)), True)
             return
         if self.snap.get("auto"):
-            PT.guardar_auto(montos={a: sp.value() for a, sp in self.montos_auto.items()})
-            PT.log(t("Dinero por moneda del piloto automático cambiado desde la aplicación."))
-        else:
-            PT.guardar_asignacion(self._montos_actuales())
-            PT.log(t("Montos por estrategia y moneda cambiados desde la aplicación."))
+            return
+        PT.guardar_asignacion(self._montos_actuales())
+        PT.log(t("Montos por estrategia y moneda cambiados desde la aplicación."))
         self._montos_sucios = False
         self.bot.revisar_ahora()  # los aplica ahora mismo (no opera si no hay velas nuevas)
         QTimer.singleShot(2500, self.refrescar)
@@ -1644,12 +1725,7 @@ class Ventana(QMainWindow):
 
     def _repartir_montos(self):
         if self.snap and self.snap.get("auto"):
-            self._llenando_montos = True
-            for sp in self.montos_auto.values():
-                sp.setValue(int(self._disponible() / len(K.SYMBOLS) * 100) / 100)
-            self._llenando_montos = False
-            self._montos_sucios = True
-            self._resumen_montos(); return
+            return
         activas = self.snap["activas"] if self.snap else []
         por = self._disponible() / (len(K.SYMBOLS) * max(1, len(activas)))
         self._llenando_montos = True
@@ -1665,14 +1741,11 @@ class Ventana(QMainWindow):
             aviso(self, t("Modo prueba"), t("En modo prueba no se cambia cómo se eligen las estrategias."))
             self._llenar_estrategias(); return
         if activar:
-            if not self.mkt.historial:
-                aviso(self, t("Estrategias"), t("Para el piloto automático hace falta el historial de estrategias. Esperá a que "
-                                                "termine de calcularse (lo ves arriba de la lista de estrategias)."))
-                self._llenar_estrategias(); return
             msg = (t("¿Encender el piloto automático?") + "\n\n" +
-                   t("El bot va a manejar todo solo: en cada revisión prende las estrategias que convienen al mercado de cada "
-                     "moneda, apaga las demás y reparte todo el capital ({d}, más lo que vaya ganando) dando más a las que "
-                     "mejor funcionan. Las posiciones abiertas se siguen manejando hasta cerrarse.", d=usd(self._disponible())))
+                   t("El bot va a usar Breakout y Resorte de tendencia en BTC, ETH y SOL, y cada día va a repartir todo el "
+                     "capital ({d}, más lo que vaya ganando) en partes iguales. Una vez por mes revisa que cada estrategia "
+                     "siga ganando. Las estrategias que tenías activas a mano y no son de la base dejan de abrir "
+                     "posiciones; las que ya tienen abiertas se siguen manejando hasta cerrarse.", d=usd(self._disponible())))
             if not preguntar(self, t("Estrategias"), msg, t("Encender piloto"), t("Cancelar")):
                 self._llenar_estrategias(); return
             PT.guardar_auto(activo=True)
@@ -1716,11 +1789,11 @@ class Ventana(QMainWindow):
                 op = elegir(self, t("Estrategias"), t("¿Activar {e}?", e=nombre) + "\n\n" + t(
                     "No tenés capital sin asignar: todo está repartido entre las estrategias que ya están activas. Para que "
                     "{e} opere hay que darle una parte.", e=nombre) + "\n\n" + t(
-                    "• Repartir como recomienda el bot: vuelve a repartir todo el capital entre las estrategias activas, "
-                    "con más dinero para las que mejor funcionan en el mercado de hoy (es el mismo botón que está en "
-                    "Configuración → Capital de cada modo). Te muestra el reparto antes de guardarlo.") + "\n" + t(
+                    "• Repartir en partes iguales: vuelve a repartir todo el capital en partes iguales entre las "
+                    "estrategias activas (es el mismo botón que está en Configuración → Capital de cada modo). Te muestra "
+                    "el reparto antes de guardarlo.") + "\n" + t(
                     "• Asignar a mano: la activa con 0 USDT; después bajá el monto de otras estrategias y ponele monto a "
-                    "esta, más abajo en su tarjeta."), [t("Repartir como recomienda el bot"), t("Asignar a mano"),
+                    "esta, más abajo en su tarjeta."), [t("Repartir en partes iguales"), t("Asignar a mano"),
                                                         t("Cancelar")])
                 if op not in (0, 1):
                     self._llenar_estrategias(); return
@@ -1815,9 +1888,10 @@ class Ventana(QMainWindow):
 
         # capital
         pv = self._seccion(iv, t("Capital de cada modo"), t(
-            "Cuánto dinero de la cuenta usa el bot en cada modo. Podés cambiarlo cuando quieras: si lo subís, la diferencia "
-            "queda sin asignar hasta que la repartas en Estrategias; si lo bajás, solo se puede sacar lo que no está "
-            "asignado (bajá antes los montos)."))
+            "Cuánto dinero de la cuenta usa el bot en cada modo. Podés cambiarlo cuando quieras. Con el piloto automático, "
+            "el bot reparte el cambio solo en la revisión siguiente. Con el piloto apagado, si lo subís la diferencia queda "
+            "sin asignar hasta que la repartas, y si lo bajás solo se puede sacar lo que no está asignado (bajá antes los "
+            "montos)."))
         g = QGridLayout(); g.setHorizontalSpacing(14); g.setVerticalSpacing(8)
         self.sp_capital = {}
         caps = PT.leer_ajustes().get("capital", {})
@@ -1830,9 +1904,9 @@ class Ventana(QMainWindow):
         pv.addLayout(g)
         h = QHBoxLayout(); h.setSpacing(8)
         h.addWidget(boton(t("Guardar capital"), "primario", self._guardar_capital))
-        h.addWidget(boton(t("Guardar y repartir como recomienda el bot"), accion=self._guardar_y_repartir, tip=t(
-            "Guarda el capital y reparte todo el capital del modo actual entre las estrategias activas en cada moneda, "
-            "con más dinero para las que mejor funcionaron en el tipo de mercado de hoy y respetando el mínimo de Binance.")))
+        h.addWidget(boton(t("Guardar y repartir en partes iguales"), accion=self._guardar_y_repartir, tip=t(
+            "Guarda el capital y lo reparte en partes iguales entre las estrategias activas en cada moneda, respetando el "
+            "mínimo de Binance. Con el piloto automático no hace falta: el bot reparte solo una vez por día.")))
         h.addStretch()
         pv.addLayout(h)
         self.lbl_cap_res = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_cap_res)
@@ -2130,11 +2204,8 @@ class Ventana(QMainWindow):
                 self.lbl_cap_res.setText(t("No se cambió el capital de {m}.", m=t(K.NOMBRE_MODO[K.MODO])))
                 self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{MUTED}")
                 return
-            if snap.get("auto"):
-                PT.guardar_auto(montos={a_: int(v * factor * 100) / 100 for a_, v in (snap.get("auto_montos") or {}).items()})
-            else:
-                asig = PT.asignacion_actual() or {}
-                PT.guardar_asignacion({k_: int(v * factor * 100) / 100 for k_, v in asig.items()})
+            asig = PT.asignacion_actual() or {}
+            PT.guardar_asignacion({k_: int(v * factor * 100) / 100 for k_, v in asig.items()})
             PT.log(t("Montos de las estrategias bajados al {p} para bajar el capital a {b} USDT.", p=pct(factor * 100, 0),
                      b=num(nuevo)))
             self._montos_sucios = False
@@ -2161,40 +2232,26 @@ class Ventana(QMainWindow):
         snap = self.snap or {}
         if snap.get("auto"):
             self._guardar_capital()
-            aviso(self, t("Capital de cada modo"), t("Con el piloto automático el bot ya reparte solo todo el capital entre "
-                                                     "las estrategias que prende. Se guardó el capital."))
+            aviso(self, t("Capital de cada modo"), t("Con el piloto automático el bot ya reparte solo todo el capital en partes "
+                                                     "iguales, una vez por día. Se guardó el capital."))
             return
-        hist = self.mkt.historial
-        regs = {a: an["regimen"] for a, an in self.mkt.analisis.items()}
-        if not hist or len(regs) < len(K.SYMBOLS):
-            aviso(self, t("Capital de cada modo"), t("Todavía no está lista la lectura del mercado o el historial de "
-                                                     "estrategias (tarda unos minutos al abrir la app). Probá de nuevo en "
-                                                     "un rato.")); return
         activas = activas or snap.get("activas") or []
         nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
         total = max(0.0, nuevo + (snap.get("realizado", 0.0) if snap.get("hay_estado") else 0.0))
-        montos, motivos = AU.montos_recomendados(hist, regs, activas, total, minimo=self._monto_minimo)
-        if not montos or sum(montos.values()) <= 0:
+        partes = [f"{a}_{k}" for k in activas for a in K.SYMBOLS]
+        montos, afuera = AU.repartir(total, partes, self._monto_minimo if K.MODO != "simulado" else None)
+        if not montos:
             aviso(self, t("Capital de cada modo"), t("Con las estrategias activas y el capital elegido no se llega al "
-                                                     "mínimo de Binance en ninguna moneda. Subí el capital o activá otras "
+                                                     "mínimo de Binance en ninguna moneda. Subí el capital o activá menos "
                                                      "estrategias.")); return
-        txt_mot = {"empeora": t("viene empeorando"), "no_conviene": t("perdió en este tipo de mercado"),
-                   "minimo": t("no llega al mínimo de Binance")}
-        lineas, sin = [], []
-        for a in K.SYMBOLS:
-            for k in activas:
-                c = f"{a}_{k}"
-                if montos.get(c, 0) > 0:
-                    lineas.append(f"• {a} {M.nombre_estrategia(k)}: {usd(montos[c])}")
-                else:
-                    sin.append(f"{a} {M.nombre_estrategia(k)} ({txt_mot.get(motivos.get(c), '—')})")
+        lineas = [f"• {k.split('_', 1)[0]} {M.nombre_estrategia(k.split('_', 1)[1])}: {usd(v)}" for k, v in montos.items()]
+        sin = [f"{k.split('_', 1)[0]} {M.nombre_estrategia(k.split('_', 1)[1])}" for k in afuera]
         msg = (t("Capital de {m}: {c}. Con el resultado ya cerrado, hay {d} para repartir.", m=t(K.NOMBRE_MODO[K.MODO]),
-                 c=usd(nuevo), d=usd(total)) + "\n\n" + t(
-                 "El bot recomienda repartirlo así, con más dinero para las estrategias que mejor funcionaron en el tipo de "
-                 "mercado de hoy de cada moneda:") + "\n" + "\n".join(lineas) +
-               (("\n\n" + t("Sin capital:") + " " + "; ".join(sin) + ".") if sin else "") + "\n\n" +
-               t("Reemplaza los montos que tenías. Las partes con una posición abierta toman el monto nuevo cuando la "
-                 "cierran. ¿Guardar?"))
+                 c=usd(nuevo), d=usd(total)) + "\n\n" + t("Repartido en partes iguales entre las estrategias activas:") +
+               "\n" + "\n".join(lineas) +
+               (("\n\n" + t("Sin capital, porque no llegan al mínimo de Binance:") + " " + "; ".join(sin) + ".") if sin else "") +
+               "\n\n" + t("Reemplaza los montos que tenías. Las partes con una posición abierta toman el monto nuevo cuando "
+                           "la cierran. ¿Guardar?"))
         if not preguntar(self, t("Capital de cada modo"), msg, t("Guardar y repartir"), t("Cancelar")):
             return
         caps = PT.leer_ajustes().get("capital", {})
@@ -2205,7 +2262,7 @@ class Ventana(QMainWindow):
         asig.update(montos)
         PT.guardar_asignacion(asig)
         PT.configurar_modo(K.MODO)
-        PT.log(t("Capital y montos repartidos como recomienda el bot: {l}.", l=", ".join(
+        PT.log(t("Capital y montos repartidos en partes iguales: {l}.", l=", ".join(
             f"{k_} {num(v)}" for k_, v in montos.items() if v > 0)))
         self._montos_sucios = False
         self._pintar_modo()
@@ -2341,6 +2398,13 @@ class Ventana(QMainWindow):
                 self._minimos = mins
                 txt = t("Conexión correcta. Saldo de futuros: {s} (libre {l}). Tamaño mínimo por orden: {m}.",
                         s=usd(sal["total"]), l=usd(sal["libre"]), m=", ".join(f"{a} {usd(c, 0)}" for a, c in mins.items()))
+                if m == "real":
+                    rs = br.restricciones()
+                    PT.guardar_ajustes(restricciones_real=dict(rs, hora=time.time()))
+                    txt += " " + t("Permisos de la clave: futuros {f}, retiros {r}, restricción de IP {i}.",
+                                   f=t("habilitados") if rs["futuros"] else t("DESHABILITADOS"),
+                                   r=t("HABILITADOS") if rs["retiros"] else t("deshabilitados"),
+                                   i=t("activa") if rs["ip"] else t("SIN ACTIVAR"))
                 if que == "ordenes":
                     LV.prueba_ordenes(br, lambda x: pasos.append(x.strip()))
                     txt = t("Prueba de órdenes correcta:") + "\n" + "\n".join(pasos)
@@ -2390,7 +2454,13 @@ class Ventana(QMainWindow):
                       if actual != "simulado" else t("Quedan congeladas hasta que vuelvas a este modo."))) if abiertas else ""
         if nuevo == "real":
             cap = float(PT.leer_ajustes().get("capital", {}).get("real", 100))
-            msg = (t("Vas a operar con DINERO REAL en Binance Futuros.") + "\n\n" +
+            lineas, bloquea = self._lista_real(cap)
+            if bloquea:
+                aviso(self, t("Operar con dinero real"), t("Antes de operar con dinero real hay que resolver lo marcado con ✗:") +
+                      "\n\n" + "\n".join(lineas), True)
+                self._pintar_modo(); return
+            msg = (t("Lista de control:") + "\n" + "\n".join(lineas) + "\n\n" +
+                   t("Vas a operar con DINERO REAL en Binance Futuros.") + "\n\n" +
                    t("El bot va a usar hasta {c} de tu cuenta, con apalancamiento de hasta {x}x y {r} de riesgo por "
                      "operación. Los resultados pasados y del modo demo no garantizan resultados futuros y podés perder "
                      "dinero.", c=usd(cap), x=num(K.MAX_LEVERAGE, 0), r=pct(K.RISK_PER_TRADE * 100, 1)) +
@@ -2408,6 +2478,52 @@ class Ventana(QMainWindow):
         self.bot.iniciar()
         PT.log(t("Modo cambiado de {a} a {b}.", a=t(K.NOMBRE_MODO[actual]), b=t(K.NOMBRE_MODO[nuevo])))
         self._pintar_modo(); self.refrescar()
+
+    def _lista_real(self, cap):
+        """Lista de control antes de pasar a dinero real. Devuelve (líneas, hay algo que bloquea)."""
+        aj = PT.leer_ajustes()
+        lineas, bloquea = [], False
+        rs = aj.get("restricciones_real")
+        if not rs:
+            lineas.append("✗ " + t("Claves: tocá Probar conexión en Dinero real para que la app verifique sus permisos."))
+            bloquea = True
+        else:
+            for ok, bien, mal in ((rs.get("futuros"), t("futuros habilitados"), t("la clave no tiene futuros habilitados")),
+                                  (not rs.get("retiros"), t("retiros deshabilitados"),
+                                   t("la clave tiene RETIROS habilitados: deshabilitalos en Binance")),
+                                  (rs.get("ip"), t("restringida a tu IP"),
+                                   t("la clave no está restringida a tu IP: activalo en Binance"))):
+                lineas.append(("✓ " if ok else "✗ ") + t("Claves:") + " " + (bien if ok else mal) + ".")
+                bloquea = bloquea or not ok
+        # tiempo y resultados en Demo
+        pts = A.curva_capital_archivo(DATOS, K.ARCHIVOS_MODO["demo"]["EQUITY_FILE"])
+        dias = (pts[-1][0] - pts[0][0]) / 86400 if len(pts) > 1 else 0
+        lineas.append(("✓ " if dias >= 28 else "⚠ ") + t("Demo: {d} días operando (se recomiendan al menos 4 semanas).",
+                                                         d=int(dias)))
+        hist = self.mkt.historial or {}
+        base = [x for x in K.PILOTO_BASE if x in (hist.get("estrategias") or {})]
+        if len(pts) > 1 and base:
+            meses = A.meses_de(pts)
+            hoy = datetime.now().strftime("%Y-%m")
+            comp = [x for x in meses if x["mes"] < hoy]
+            if comp:
+                bot = 1.0; sim = 1.0
+                for x in comp:
+                    bot *= 1 + (x["pct"] or 0) / 100
+                    sim *= 1 + sum(hist["estrategias"][b].get("mensual", {}).get(x["mes"], 0) for b in base) / len(base) / 100
+                dif = (bot - sim) * 100
+                lineas.append(("✓ " if dif >= -10 else "⚠ ") + t(
+                    "Demo contra la simulación en los meses completos: bot {b}, simulación {s}.",
+                    b=pct((bot - 1) * 100, 1, True), s=pct((sim - 1) * 100, 1, True)))
+            else:
+                lineas.append("⚠ " + t("Demo: todavía no hay un mes completo para comparar con la simulación."))
+        partes = [(s, a) for s in (base if (self.snap or {}).get("auto") else (self.snap or {}).get("activas", []))
+                  for a in K.SYMBOLS]
+        cm = self._capital_minimo(partes) if partes else None
+        if cm:
+            lineas.append(("✓ " if cap >= cm else "⚠ ") + t("Capital de dinero real: {c} (mínimo recomendado {m}).",
+                                                           c=usd(cap, 0), m=usd(cm, 0)))
+        return lineas, bloquea
 
     def _con_bot_detenido(self, titulo, accion):
         """Detiene el bot, hace la acción con una conexión propia y lo vuelve a arrancar."""
@@ -2544,6 +2660,7 @@ class Ventana(QMainWindow):
         self._pintar_grafico()
         self._llenar_abiertas(); self._llenar_ultimas(); self._llenar_pos(); self._llenar_ops(); self._llenar_log()
         self._llenar_decisiones(); self._llenar_estrategias(); self._llenar_avisos(); self._llenar_lab(); self._revisar_capital()
+        self._llenar_mensual()
         self._actualizar_bandeja(); self._notificar()
 
     def _pintar_grafico(self):
@@ -2727,7 +2844,18 @@ class SinRueda(QObject):
         return False
 
 
+def _limpiar_obsoletos():
+    """Borra archivos de versiones anteriores que ya no se usan (solo los de la lista, nunca datos del usuario)."""
+    for f in getattr(K, "OBSOLETOS", []):
+        try:
+            if os.path.isfile(f) and os.path.dirname(os.path.abspath(f)) == os.getcwd():
+                os.remove(f)
+        except OSError:
+            pass
+
+
 def main():
+    _limpiar_obsoletos()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app._sin_rueda = SinRueda(app); app.installEventFilter(app._sin_rueda)

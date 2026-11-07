@@ -74,16 +74,27 @@ def prueba_auto():
     K, PT, L, backtest = modulos()
     PT.configurar_modo("simulado"); K.SYMBOLS = {"SYN": "x"}
     logs = []; clock = reloj_falso(PT, logs)
-    PT.guardar_auto(activo=True, montos={"SYN": 100})
+    PT.guardar_auto(activo=True)
     st = PT.load_state()
     usadas = set()
+    original = PT.aplicar_asignacion
+
+    def revisar(st, act, asig=None):  # justo después de repartir: todo cuadra antes de operar
+        tot0 = sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0)
+        original(st, act, asig)
+        tot = sum(v["equity"] for v in st["sleeves"].values()) + st["libre"]
+        assert abs(tot - tot0) < 1e-6 and st["libre"] > -1e-9, (tot0, tot, st["libre"])
+        objetivos = {kk: v for kk, v in st["efectivo"]["asignacion"].items() if v > 0}
+        assert sum(objetivos.values()) <= tot + 0.05
+        bloqueado = sum(v["equity"] for kk, v in st["sleeves"].items() if v["pos"])
+        if not bloqueado:  # sin posiciones abiertas, cada elegida tiene exactamente su parte
+            for kk, v in objetivos.items():
+                assert abs(st["sleeves"][kk]["equity"] - v) < 0.05, (kk, st["sleeves"][kk]["equity"], v)
+    PT.aplicar_asignacion = revisar
     for k in range(3000, 4500):
         clock["t"] = ROWS[k][0] + 20000
         PT.step(None, st)
         usadas.update(st["efectivo"]["activas"]["SYN"])
-        tot = sum(v["equity"] for v in st["sleeves"].values()) + st["libre"]
-        pend = sum(v["equity"] - st["auto"]["ref"].get(kk, v["equity"]) for kk, v in st["sleeves"].items())
-        assert abs(tot - (PT.base_capital(st) + st["auto"]["resultado"].get("SYN", 0.0) + pend)) < 0.05, (k, tot)
     ops = list(csv.DictReader(open(K.TRADES_FILE, encoding="utf-8")))
     assert ops and len(usadas) >= 2, usadas
     cambios = [l for l in logs if "automático" in l]
@@ -110,7 +121,7 @@ def prueba_binance(semilla, auto=False):
         logs = []; PT.log = lambda m: logs.append(m)
         PT.guardar_activas(["BREAKOUT", "TL", "SUPERTREND"])
         if auto:
-            PT.guardar_auto(activo=True, montos={"BTC": 50, "SOL": 50})
+            PT.guardar_auto(activo=True)
         st = PT.load_state()
         for k in range(3000, 3600):
             fake.procesar_vela("BTC/USDT:USDT", ROWS[k - 1]); fake.procesar_vela("SOL/USDT:USDT", rows2[k - 1])

@@ -180,8 +180,8 @@ def step_live(br, st):
     for asset, sym in K.SYMBOLS.items():
         rows = br.velas(sym)
         velas[asset] = prepare([r for r in rows if r[0] + K.BAR_MS <= ahora], K.BAR_MS, K.HTF_MS)
-    act, asig = PT.plan(st, velas)
     PT.aplicar_capital(st)
+    act, asig = PT.plan(st, velas)
     PT.aplicar_asignacion(st, act, asig)
     PT.aplicar_capital(st)
     notas = br.preparar(list(K.SYMBOLS.values()))

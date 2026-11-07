@@ -1064,14 +1064,15 @@ class Ventana(QMainWindow):
             ham.addWidget(con_pasos(sp)); ham.addSpacing(10); self.montos_auto[a] = sp
         ham.addStretch(); pmv.addWidget(self.w_auto_montos)
         self.lbl_montos = lbl("", size=13, wrap=True); pmv.addWidget(self.lbl_montos)
-        hb = QHBoxLayout(); hb.setSpacing(8)
+        self.w_botones_montos = QWidget(); hb = QHBoxLayout(self.w_botones_montos); hb.setContentsMargins(0, 0, 0, 0)
+        hb.setSpacing(8)
         self.btn_guardar_montos = boton(t("Guardar montos"), "primario", self._guardar_montos)
         hb.addWidget(self.btn_guardar_montos)
         hb.addWidget(boton(t("Repartir en partes iguales"), accion=self._repartir_montos,
                            tip=t("Divide todo el saldo disponible en partes iguales.")))
         self.btn_deshacer_montos = boton(t("Deshacer cambios"), accion=lambda: self._llenar_montos(forzar=True))
         hb.addWidget(self.btn_deshacer_montos); hb.addStretch()
-        pmv.addLayout(hb)
+        pmv.addWidget(self.w_botones_montos)
         self.lbl_minimos = lbl("", rol="muted", size=12, wrap=True); pmv.addWidget(self.lbl_minimos)
         iv.addWidget(pm); iv.addSpacing(6)
 
@@ -1244,12 +1245,14 @@ class Ventana(QMainWindow):
                     x.setStyleSheet(f"font-size:13px; color:{colx}")
             for a in K.SYMBOLS:
                 self.montos_w[(k, a)].setEnabled(k in activas)
-        self.w_auto_montos.setVisible(bool(auto))
-        self.lbl_montos_tit.setText(t("Dinero por moneda") if auto else t("Dinero por estrategia y moneda"))
+        self.w_auto_montos.setVisible(False)  # en automático el capital se reparte solo
+        self.w_botones_montos.setVisible(not auto)
+        self.lbl_montos_tit.setText(t("Dinero de las estrategias"))
         self.lbl_montos_ayuda.setText(
-            t("Elegí cuántos USDT usa el bot en cada moneda. Se reparten en partes iguales entre las estrategias que elija "
-              "para esa moneda, y lo que ganen o pierdan se suma a ese monto. Si en una moneda no conviene ninguna "
-              "estrategia, su dinero queda sin usar hasta que cambie el mercado.") if auto else
+            t("En modo automático el bot usa todo el capital (el del modo más lo que vaya ganando) y lo reparte en partes "
+              "iguales entre las estrategias que elige en las tres monedas. Si en una moneda no conviene ninguna, su "
+              "parte va a las otras. Para cambiar cuánto usa en total, cambiá el capital del modo en Configuración.")
+            if auto else
             t("Elegí en cada estrategia cuántos USDT usa en BTC, ETH y SOL. Cada monto pasa a ser el capital de esa parte "
               "y desde ahí reinvierte sus ganancias. Lo que no asignes queda sin usar. Si una parte tiene una posición "
               "abierta, el monto nuevo se aplica cuando la cierre."))
@@ -1486,7 +1489,7 @@ class Ventana(QMainWindow):
 
     def _suma_montos(self):
         if self.snap and self.snap.get("auto"):
-            return sum(sp.value() for sp in self.montos_auto.values())
+            return self._disponible()
         activas = self.snap["activas"] if self.snap else []
         return sum(sp.value() for (k, _), sp in self.montos.items() if k in activas)
 
@@ -1494,8 +1497,12 @@ class Ventana(QMainWindow):
         disp, asig = self._disponible(), self._suma_montos()
         resto = disp - asig
         if self.snap and self.snap.get("auto"):
-            txt = t("Disponible: {d} (capital del modo más resultado cerrado). Asignado a monedas: {a}. Sin asignar: {r}.",
-                    d=usd(disp), a=usd(asig), r=usd(resto))
+            partes = sum(len(v) for v in (self.snap.get("activas_moneda") or {}).values())
+            txt = (t("Usa {d}, repartido en {n} partes de {x} cada una.", d=usd(disp), n=partes, x=usd(disp / partes))
+                   if partes else t("Ninguna estrategia conviene ahora: los {d} quedan sin usar hasta que cambie el "
+                                    "mercado.", d=usd(disp)))
+            self.lbl_montos.setText(txt); self.lbl_montos.setStyleSheet(f"font-size:13px; color:{TEXT}")
+            return
         else:
             txt = t("Disponible: {d} (capital del modo más resultado cerrado). Asignado a estrategias activas: {a}. "
                     "Sin asignar: {r}.", d=usd(disp), a=usd(asig), r=usd(resto))
@@ -1574,16 +1581,13 @@ class Ventana(QMainWindow):
                 aviso(self, t("Estrategias"), t("Para el modo automático hace falta el historial de estrategias. Esperá a que "
                                                 "termine de calcularse (lo ves arriba de la lista de estrategias)."))
                 self._llenar_estrategias(); return
-            import auto as AU
-            montos = self.snap.get("auto_montos") or AU.montos_por_defecto(
-                self.snap["asignacion"], self.snap["activas"], self._disponible())
             msg = (t("¿Pasar al modo automático?") + "\n\n" +
-                   t("El bot va a elegir en cada revisión qué estrategias usar en cada moneda según el tipo de mercado. "
-                     "Dinero por moneda: {m} (lo podés cambiar después). Las posiciones abiertas se siguen manejando hasta "
-                     "cerrarse.", m=", ".join(f"{a} {usd(v)}" for a, v in montos.items())))
+                   t("El bot va a elegir en cada revisión qué estrategias usar en cada moneda según el tipo de mercado, y "
+                     "va a repartir todo el capital ({d}, más lo que vaya ganando) en partes iguales entre las que elija. "
+                     "Las posiciones abiertas se siguen manejando hasta cerrarse.", d=usd(self._disponible())))
             if not preguntar(self, t("Estrategias"), msg, t("Pasar a automático"), t("Cancelar")):
                 self._llenar_estrategias(); return
-            PT.guardar_auto(activo=True, montos=montos)
+            PT.guardar_auto(activo=True)
             PT.log(t("Modo automático de estrategias encendido desde la aplicación."))
         else:
             if not preguntar(self, t("Estrategias"), t("¿Volver al modo manual?") + "\n\n" + t(
@@ -1991,6 +1995,8 @@ class Ventana(QMainWindow):
         nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
         libre = snap.get("libre", 0.0) if snap.get("hay_estado") else nuevo
         falta = (efectivo - nuevo) - libre
+        if falta > 0.005 and snap.get("auto"):
+            falta = 0  # en automático el bot saca la diferencia solo, de las partes que no tienen posición abierta
         if falta > 0.005:  # bajar más de lo que está sin asignar: hay que sacar plata de las estrategias
             factor = max(0.0, 1 - falta / max(1e-9, efectivo - libre))
             if not preguntar(self, t("Capital de cada modo"), t(

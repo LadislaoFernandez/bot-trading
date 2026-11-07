@@ -35,9 +35,15 @@ ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de c
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.6.3"
+VERSION = "1.6.4"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.6.4", "06/11/2026", [
+        "Modo automático: reparte todo el capital (el del modo más lo que vaya ganando) en partes iguales entre las "
+        "estrategias que elige en las tres monedas. Ya no hay que elegir dinero por moneda.",
+        "Al repartir montos, primero se bajan las partes que liberan capital y después se suben las demás, así no queda "
+        "ninguna corta por falta de capital sin asignar.",
+    ]),
     ("1.6.3", "06/11/2026", [
         "Al bajar el capital de un modo por debajo de lo asignado a las estrategias, la app avisa y ofrece bajar los "
         "montos en la misma proporción (antes el cambio quedaba sin aplicar y sin aviso).",

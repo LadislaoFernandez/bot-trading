@@ -6,9 +6,9 @@ En cada revisión, para cada moneda:
   2. Elige hasta 2 estrategias que en ese tipo de mercado ganaron al menos 1,10 veces lo que perdieron, con 30
      operaciones o más en el historial (las mismas reglas de la recomendación de la pantalla Estrategias), y que no
      vengan empeorando: si en los últimos 90 días perdió más de lo que ganó, no la usa hasta que se recupere.
-  3. Reparte en partes iguales entre ellas el dinero de esa moneda: el monto que elegiste más lo ganado (o menos lo
-     perdido) por las operaciones de esa moneda desde que lo elegiste, así las ganancias se reinvierten.
-Si ninguna estrategia conviene, esa moneda no abre operaciones nuevas y su dinero queda sin asignar.
+  3. Reparte todo el capital del bot (el del modo más lo ganado en operaciones cerradas) en partes iguales entre las
+     estrategias elegidas en las tres monedas, así las ganancias se reinvierten.
+Si en una moneda no conviene ninguna estrategia, no abre operaciones nuevas y su parte va a las otras monedas.
 Las posiciones abiertas de una estrategia que deja de estar elegida se siguen manejando hasta cerrarse.
 """
 import config as K
@@ -32,30 +32,32 @@ def elegir(historial, regimen):
     return [f["estrategia"] for f in M.recomendar(historial, regimen) if f["recomendable"]][:MAX_POR_MONEDA]
 
 
-def plan(st, Ds, historial, montos, log=None):
-    """Ds: velas preparadas de cada moneda. montos: USDT por moneda.
-    Devuelve (estrategias por moneda, monto de cada parte)."""
+def plan(st, Ds, historial, montos=None, log=None, reduccion=0.0):
+    """Ds: velas preparadas de cada moneda. Devuelve (estrategias por moneda, monto de cada parte).
+
+    Todo el capital del bot (el del modo más lo ganado o menos lo perdido en operaciones cerradas) se reparte en partes
+    iguales entre las estrategias elegidas en todas las monedas. Si en una moneda no conviene ninguna, su parte va a
+    las otras. Las partes con una posición abierta toman el monto nuevo cuando la cierran."""
     au = st.setdefault("auto", {"regimen": {}, "seleccion": {}})
-    acum, ref = au.setdefault("resultado", {}), au.get("ref")
-    if ref is not None:  # lo que cambió el capital de cada parte desde la revisión anterior = resultado de sus operaciones
-        for k, v in st["sleeves"].items():
-            a = k.split("_", 1)[0]
-            acum[a] = acum.get(a, 0.0) + v["equity"] - ref.get(k, v["equity"])
-    act, asig, cambios = {}, {}, []
+    act, cambios = {}, []
     for a in K.SYMBOLS:
         D = Ds.get(a)
         reg = regimen_estable(D, au["regimen"].get(a)) if D else au["regimen"].get(a)
         sel = elegir(historial, reg) if reg else []
         act[a] = sel
-        m = max(0.0, float(montos.get(a, 0.0)) + acum.get(a, 0.0)) if montos.get(a) else 0.0
-        for s in sel:
-            asig[f"{a}_{s}"] = int(m / len(sel) * 100) / 100
         if au["seleccion"].get(a) != sel or au["regimen"].get(a) != reg:
             nombres = ", ".join(M.nombre_estrategia(s) for s in sel) if sel else t("ninguna (no abre operaciones nuevas)")
             cambios.append(t("{a} ({r}): {e}", a=a, r=t(reg).lower() if reg else "—", e=nombres))
         au["regimen"][a], au["seleccion"][a] = reg, sel
+    partes = [f"{a}_{s}" for a, sel in act.items() for s in sel]
+    # reduccion: si bajaste el capital del modo, esa parte se deja sin asignar para poder sacarla
+    total = max(0.0, sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0) - reduccion)
+    por = int(total / len(partes) * 100) / 100 if partes else 0.0
+    asig = {k: por for k in partes}
     if cambios and log:
-        log(t("Modo automático, estrategias elegidas:") + " " + "; ".join(cambios) + ".")
+        log(t("Modo automático, estrategias elegidas:") + " " + "; ".join(cambios) + ". " +
+            (t("Capital repartido: {x} USDT en cada una de las {n} partes.", x=num(por), n=len(partes)) if partes else
+             t("Todo el capital queda sin asignar hasta que convenga alguna estrategia.")))
     return act, asig
 
 

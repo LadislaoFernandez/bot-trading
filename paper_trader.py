@@ -136,15 +136,7 @@ def plan(st, Ds):
     if not hist:
         log(t("Modo automático: todavía no está calculado el historial de estrategias; se usan las estrategias activadas a mano."))
         return {a: list(manual) for a in K.SYMBOLS}, None
-    montos = montos_auto()
-    if not montos:
-        montos = auto.montos_por_defecto(asignacion_actual(), manual, base_capital(st))
-        guardar_auto(montos=montos)
-    ver = auto_ajustes().get("version_montos", {}).get(K.MODO, 0)
-    au = st.setdefault("auto", {"regimen": {}, "seleccion": {}})
-    if au.get("version_montos") != ver:  # montos nuevos: el resultado se vuelve a contar desde cero
-        au["resultado"], au["version_montos"] = {}, ver
-    return auto.plan(st, Ds, hist, montos, log)
+    return auto.plan(st, Ds, hist, log=log, reduccion=max(0.0, base_capital(st) - K.INITIAL_CAPITAL))
 
 
 def configurar_modo(modo):
@@ -190,9 +182,13 @@ def aplicar_capital(st):
     if delta < 0 and -delta > st.get("libre", 0.0) + 1e-9:
         falta = -delta - st.get("libre", 0.0)
         if abs(st.get("capital_pendiente", 0) - K.INITIAL_CAPITAL) > 0.005:  # se anota una sola vez
-            log(t("El capital del modo quedó en {b} USDT y no en {c}: para bajarlo faltan {f} USDT sin asignar. Bajá los "
-                  "montos de las estrategias (o las que tienen una posición abierta lo liberan al cerrarla).",
-                  b=num(base_capital(st) - st.get("libre", 0.0)), c=num(K.INITIAL_CAPITAL), f=num(falta)))
+            if modo_auto():
+                log(t("El capital del modo baja a {c} USDT cuando se cierren las posiciones abiertas (faltan {f} USDT "
+                      "sin asignar).", c=num(K.INITIAL_CAPITAL), f=num(falta)))
+            else:
+                log(t("El capital del modo quedó en {b} USDT y no en {c}: para bajarlo faltan {f} USDT sin asignar. Bajá "
+                      "los montos de las estrategias (o las que tienen una posición abierta lo liberan al cerrarla).",
+                      b=num(base_capital(st) - st.get("libre", 0.0)), c=num(K.INITIAL_CAPITAL), f=num(falta)))
         st["capital_pendiente"] = K.INITIAL_CAPITAL
         delta = -st.get("libre", 0.0)
     else:
@@ -224,16 +220,18 @@ def aplicar_asignacion(st, activas, asig_auto=None):
         asig = asignacion_por_defecto(base_capital(st), activas)
         guardar_asignacion(asig)
     aplicado = st.setdefault("aplicado", {})
-    cambios = []
+    cambios, pendientes = [], []
     for k, v in st["sleeves"].items():
         if v["pos"]:
             continue
         ka, ks = k.split("_", 1)
         objetivo = asig.get(k, 0.0) if ks in act.get(ka, []) else 0.0
-        meta = objetivo
         if abs(objetivo - aplicado.get(k, 0.0)) < 0.005 and not (objetivo == 0 and v["equity"] > 1e-9):
             continue
-        diff = objetivo - v["equity"]
+        pendientes.append((objetivo - v["equity"], k, objetivo))
+    # primero las que bajan (liberan capital) y después las que suben, para que no falte capital sin asignar
+    for diff, k, objetivo in sorted(pendientes):
+        v, meta = st["sleeves"][k], objetivo
         if diff > st["libre"] + 1e-9:  # no alcanza el capital sin asignar
             log(t("{k}: no alcanza el capital sin asignar para llevarla a {o} USDT; queda en {e} USDT.",
                   k=k, o=num(objetivo), e=num(v["equity"] + st["libre"])))
@@ -242,7 +240,7 @@ def aplicar_asignacion(st, activas, asig_auto=None):
         st["libre"] -= diff
         v["equity"] = objetivo
         v["pending"] = None if objetivo == 0 else v["pending"]
-        aplicado[k] = meta
+        aplicado[k] = meta if abs(objetivo - meta) < 0.005 else objetivo  # si quedó corta, se reintenta en la próxima
         cambios.append(f"{k} {num(objetivo)}")
     if abs(st["libre"]) < 1e-9:
         st["libre"] = 0.0
@@ -305,8 +303,8 @@ def step(ex, st):
         closed = [r for r in rows if r[0] + K.BAR_MS <= now_ms()]
         forming = rows[-1] if rows[-1][0] + K.BAR_MS > now_ms() else None
         velas[asset] = (forming, prepare(closed, K.BAR_MS, K.HTF_MS))
-    act, asig = plan(st, {a: v[1] for a, v in velas.items()})
     aplicar_capital(st)
+    act, asig = plan(st, {a: v[1] for a, v in velas.items()})
     aplicar_asignacion(st, act, asig)
     aplicar_capital(st)  # si se bajaron montos para bajar el capital, recién ahora hay sin asignar para sacarlo
     prices, total, items, vela_txt = {}, 0.0, [], None

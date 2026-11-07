@@ -802,4 +802,5 @@ EN = {
     'Laboratorio más exigente: las candidatas tienen que ganar en casi todos los semestres de la prueba y en los últimos 12 meses. Se sacó "Proponer para todos".': 'Stricter lab: candidates must win in almost every half-year of the test and over the last 12 months. "Propose to everyone" was removed.',
     'Se borran archivos de versiones viejas que ya no se usaban.': 'Files from old versions that were no longer used are deleted.',
     'Resultados por mes y caída máxima: los cambios de capital del modo ya no cuentan como ganancia o pérdida.': 'Results by month and max drawdown: changes to the mode capital no longer count as profit or loss.',
+    'Resultados por mes: un cambio de capital que vuelve atrás (por ejemplo de 300 a 350 y de nuevo a 300) ya no aparece como pérdida.': 'Results by month: a capital change that is undone (for example from 300 to 350 and back to 300) no longer shows as a loss.',
 }

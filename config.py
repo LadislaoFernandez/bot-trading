@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.9.2", "07/11/2026", [
+        "Resultados por mes: un cambio de capital que vuelve atrás (por ejemplo de 300 a 350 y de nuevo a 300) ya no "
+        "aparece como pérdida.",
+    ]),
     ("1.9.1", "07/11/2026", [
         "Resultados por mes y caída máxima: los cambios de capital del modo ya no cuentan como ganancia o pérdida.",
     ]),

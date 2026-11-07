@@ -4,6 +4,7 @@ No depende de la interfaz gráfica, así se puede probar por separado.
 """
 import csv
 import json
+import math
 import os
 import time
 from datetime import datetime
@@ -108,8 +109,8 @@ def curva_capital_archivo(carpeta, archivo):
 
 def meses_de(pts):
     """Resultado de cada mes y caída máxima total, sin contar los cambios de capital del modo como ganancia o pérdida.
-    pts: [(hora, saldo, capital del modo o None)]. Sin el capital anotado (filas viejas), un salto de más del 15 % en
-    una hora se toma como cambio de capital: el bot no puede ganar ni perder tanto en una hora."""
+    pts: [(hora, saldo, capital del modo o None)]. Sin el capital anotado (filas viejas), un salto de más del 10 % en
+    una hora, hacia arriba o hacia abajo, se toma como cambio de capital: el bot no se mueve tanto en una hora."""
     meses, indice, prev, pico, dd = [], 1.0, None, 1.0, 0.0
     for p in pts:
         ts, v = p[0], p[1]
@@ -119,7 +120,7 @@ def meses_de(pts):
                 r = (v / b) / (prev[1] / prev[2])
             else:
                 r = v / prev[1]
-                if abs(r - 1) > 0.15:
+                if abs(math.log(r)) > math.log(1.10):  # igual hacia arriba y hacia abajo: 300 -> 350 -> 300 no es ganancia ni pérdida
                     r = 1.0
             indice *= r
         prev = (ts, v, b)

@@ -368,6 +368,19 @@ def preguntar(parent, titulo, texto, si=None, no=None):
     return m.clickedButton() is b_si
 
 
+def elegir(parent, titulo, texto, opciones):
+    """Pregunta con varias opciones (botones en el idioma de la app). Devuelve el índice elegido, o None si se cerró."""
+    m = QMessageBox(parent)
+    m.setWindowTitle(titulo)
+    m.setText(texto)
+    m.setIcon(QMessageBox.Question)
+    botones = [m.addButton(o, QMessageBox.RejectRole if i == len(opciones) - 1 else QMessageBox.AcceptRole)
+               for i, o in enumerate(opciones)]
+    m.setDefaultButton(botones[0])
+    m.exec()
+    return botones.index(m.clickedButton()) if m.clickedButton() in botones else None
+
+
 def aviso(parent, titulo, texto, error=False):
     m = QMessageBox(parent)
     m.setWindowTitle(titulo)
@@ -1689,9 +1702,31 @@ class Ventana(QMainWindow):
                 nuevos = {f"{a}_{k}": por for a in K.SYMBOLS}
                 detalle = t("Se le asignan {x} por moneda del capital sin asignar. Podés cambiarlo abajo, en Monto por "
                             "moneda.", x=usd(por))
-            else:
-                detalle = t("No hay capital sin asignar, así que arranca con 0 USDT y no opera hasta que le pongas montos "
-                            "(o toques Repartir en partes iguales).")
+            else:  # no hay capital sin asignar: hay que sacarle a otras
+                op = elegir(self, t("Estrategias"), t("¿Activar {e}?", e=nombre) + "\n\n" + t(
+                    "No tenés capital sin asignar: todo está repartido entre las estrategias que ya están activas. Para que "
+                    "{e} opere hay que darle una parte.", e=nombre) + "\n\n" + t(
+                    "• Repartir como recomienda el bot: vuelve a repartir todo el capital entre las estrategias activas, "
+                    "con más dinero para las que mejor funcionan en el mercado de hoy (es el mismo botón que está en "
+                    "Configuración → Capital de cada modo). Te muestra el reparto antes de guardarlo.") + "\n" + t(
+                    "• Asignar a mano: la activa con 0 USDT; después bajá el monto de otras estrategias y ponele monto a "
+                    "esta, más abajo en su tarjeta."), [t("Repartir como recomienda el bot"), t("Asignar a mano"),
+                                                        t("Cancelar")])
+                if op not in (0, 1):
+                    self._llenar_estrategias(); return
+                activas_n = sorted(set(activas + [k]), key=list(PT.NOMBRES).index)
+                PT.guardar_activas(activas_n)
+                self._montos_sucios = False
+                if op == 0:
+                    self.snap["activas"] = activas_n
+                    self._guardar_y_repartir(activas=activas_n)
+                else:
+                    self.bot.revisar_ahora()
+                    sp = self.montos.get((k, list(K.SYMBOLS)[0]))
+                    if sp:
+                        QTimer.singleShot(600, lambda: (sp.setFocus(), sp.selectAll()))
+                QTimer.singleShot(2500, self.refrescar)
+                return
             msg = t("¿Activar {e}?", e=nombre) + "\n\n" + t("Va a operar en BTC, ETH y SOL.") + " " + detalle
         else:
             msg = t("¿Desactivar {e}?", e=nombre) + "\n\n" + t(
@@ -2109,7 +2144,7 @@ class Ventana(QMainWindow):
             self.lbl_cap_res.setText(t("Capital guardado."))
         self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{GAIN}")
 
-    def _guardar_y_repartir(self):
+    def _guardar_y_repartir(self, activas=None):
         import auto as AU
         if PRUEBA:
             aviso(self, t("Modo prueba"), t("En modo prueba no se cambia el capital.")); return
@@ -2125,7 +2160,7 @@ class Ventana(QMainWindow):
             aviso(self, t("Capital de cada modo"), t("Todavía no está lista la lectura del mercado o el historial de "
                                                      "estrategias (tarda unos minutos al abrir la app). Probá de nuevo en "
                                                      "un rato.")); return
-        activas = snap.get("activas") or []
+        activas = activas or snap.get("activas") or []
         nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
         total = max(0.0, nuevo + (snap.get("realizado", 0.0) if snap.get("hay_estado") else 0.0))
         montos, motivos = AU.montos_recomendados(hist, regs, activas, total, minimo=self._monto_minimo)

@@ -35,9 +35,14 @@ ESPERA_ORDEN_LIMITE = 180     # segundos que espera una orden límite antes de c
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.6.6"
+VERSION = "1.7"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.7", "06/11/2026", [
+        "Botón Guardar y repartir como recomienda el bot, en Configuración: reparte el capital entre las estrategias "
+        "activas de cada moneda según cómo funcionaron en el tipo de mercado de hoy, sin pasar del 40 % en ninguna y "
+        "respetando el mínimo de Binance.",
+    ]),
     ("1.6.6", "06/11/2026", [
         "Mínimos de Binance en los montos: la app lee de Binance el tamaño mínimo por orden de cada moneda, calcula con "
         "la volatilidad de hoy cuánto necesita cada estrategia para llegar a ese mínimo y marca en rojo los montos que "

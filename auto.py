@@ -73,3 +73,65 @@ def montos_por_defecto(asignacion, activas, capital):
 
 def describir_montos(montos):
     return ", ".join(f"{a} {num(v)} USDT" for a, v in montos.items())
+
+
+TOPE_PARTE = 0.40  # ninguna estrategia en una moneda se lleva más del 40 % del capital
+
+
+def montos_recomendados(historial, regimen_por_activo, activas, total, minimo=None):
+    """Reparto recomendado del capital entre las estrategias activas, en cada moneda.
+
+    Peso de cada parte (estrategia en una moneda) según cómo le fue a esa estrategia en el tipo de mercado actual de
+    esa moneda: si conviene, pesa lo que ganó sobre lo que perdió (de 1,1 a 3); con ventaja chica o sin datos
+    suficientes pesa 0,5; si perdió en ese tipo de mercado o viene empeorando, no recibe capital. Así se reparte entre
+    varias (no todo a una) pero con más a las que mejor funcionan. Ninguna parte pasa del 40 % del total.
+    minimo(k, a) -> monto mínimo para llegar al tamaño de orden de Binance (o None): las partes que no llegan quedan en
+    0 y su parte se reparte entre las demás.
+    Devuelve ({'BTC_TL': monto, ...}, {'BTC_TL': motivo}) ."""
+    partes, motivos = {}, {}
+    for a, reg in regimen_por_activo.items():
+        for k in activas:
+            d = ((historial or {}).get("estrategias", {}).get(k) or {})
+            r = d.get("regimenes", {}).get(reg, {})
+            ops, pf = r.get("ops") or 0, r.get("pf")
+            clave = f"{a}_{k}"
+            if d.get("estado") == "empeora":
+                partes[clave], motivos[clave] = 0.0, "empeora"
+            elif ops >= M.MIN_OPS and pf is not None and pf < 1:
+                partes[clave], motivos[clave] = 0.0, "no_conviene"
+            elif ops >= M.MIN_OPS and pf is not None and pf >= M.PF_RECOMENDABLE:
+                partes[clave], motivos[clave] = 1 + min(pf, 3.0) - 1, "conviene"  # 1,1 a 3 según su ventaja
+            else:
+                partes[clave], motivos[clave] = 0.5, "sin_datos" if ops < M.MIN_OPS or pf is None else "debil"
+    if not partes:
+        return {}, {}
+    if sum(partes.values()) <= 0:  # ninguna conviene: reparte en partes iguales para no dejar todo quieto
+        partes = {k: 1.0 for k in partes}
+    for _ in range(len(partes) + 1):
+        tot_peso = sum(partes.values())
+        montos = {k: total * w / tot_peso if tot_peso else 0.0 for k, w in partes.items()}
+        # tope por parte: lo que sobra se reparte entre las demás
+        for _ in range(len(partes)):
+            sobra = sum(m - total * TOPE_PARTE for m in montos.values() if m > total * TOPE_PARTE)
+            if sobra <= 1e-9:
+                break
+            libres = [k for k, m in montos.items() if m < total * TOPE_PARTE - 1e-9 and partes[k] > 0]
+            if not libres:
+                break
+            for k in montos:
+                montos[k] = min(montos[k], total * TOPE_PARTE)
+            pl = sum(partes[k] for k in libres)
+            for k in libres:
+                montos[k] += sobra * partes[k] / pl
+        # la parte más chica que no llega al mínimo de Binance sale del reparto
+        bajas = [(montos[k], k) for k in montos
+                 if partes[k] > 0 and minimo and minimo(k.split("_", 1)[1], k.split("_", 1)[0]) and
+                 montos[k] < minimo(k.split("_", 1)[1], k.split("_", 1)[0])]
+        if not bajas:
+            break
+        _, k = min(bajas)
+        partes[k], motivos[k] = 0.0, "minimo"
+        if sum(partes.values()) <= 0:
+            montos = {k: 0.0 for k in partes}
+            break
+    return {k: int(m * 100) / 100 for k, m in montos.items()}, motivos

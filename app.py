@@ -1783,7 +1783,12 @@ class Ventana(QMainWindow):
             g.addWidget(con_pasos(sp), i, 1); self.sp_capital[m] = sp
         g.setColumnStretch(2, 1)
         pv.addLayout(g)
-        h = QHBoxLayout(); h.addWidget(boton(t("Guardar capital"), "primario", self._guardar_capital)); h.addStretch()
+        h = QHBoxLayout(); h.setSpacing(8)
+        h.addWidget(boton(t("Guardar capital"), "primario", self._guardar_capital))
+        h.addWidget(boton(t("Guardar y repartir como recomienda el bot"), accion=self._guardar_y_repartir, tip=t(
+            "Guarda el capital y reparte todo el capital del modo actual entre las estrategias activas en cada moneda, "
+            "con más dinero para las que mejor funcionaron en el tipo de mercado de hoy y respetando el mínimo de Binance.")))
+        h.addStretch()
         pv.addLayout(h)
         self.lbl_cap_res = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_cap_res)
         self.lbl_cap_aviso = lbl("", size=13, wrap=True, color=LOSS); self.lbl_cap_aviso.setVisible(False)
@@ -2102,6 +2107,66 @@ class Ventana(QMainWindow):
                                       else t("Se aplica en unos segundos.")))
         else:
             self.lbl_cap_res.setText(t("Capital guardado."))
+        self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{GAIN}")
+
+    def _guardar_y_repartir(self):
+        import auto as AU
+        if PRUEBA:
+            aviso(self, t("Modo prueba"), t("En modo prueba no se cambia el capital.")); return
+        snap = self.snap or {}
+        if snap.get("auto"):
+            self._guardar_capital()
+            aviso(self, t("Capital de cada modo"), t("En modo automático el bot ya reparte solo todo el capital entre las "
+                                                     "estrategias que elige. Se guardó el capital."))
+            return
+        hist = self.mkt.historial
+        regs = {a: an["regimen"] for a, an in self.mkt.analisis.items()}
+        if not hist or len(regs) < len(K.SYMBOLS):
+            aviso(self, t("Capital de cada modo"), t("Todavía no está lista la lectura del mercado o el historial de "
+                                                     "estrategias (tarda unos minutos al abrir la app). Probá de nuevo en "
+                                                     "un rato.")); return
+        activas = snap.get("activas") or []
+        nuevo = round(float(self.sp_capital[K.MODO].value()), 2)
+        total = max(0.0, nuevo + (snap.get("realizado", 0.0) if snap.get("hay_estado") else 0.0))
+        montos, motivos = AU.montos_recomendados(hist, regs, activas, total, minimo=self._monto_minimo)
+        if not montos or sum(montos.values()) <= 0:
+            aviso(self, t("Capital de cada modo"), t("Con las estrategias activas y el capital elegido no se llega al "
+                                                     "mínimo de Binance en ninguna moneda. Subí el capital o activá otras "
+                                                     "estrategias.")); return
+        txt_mot = {"empeora": t("viene empeorando"), "no_conviene": t("perdió en este tipo de mercado"),
+                   "minimo": t("no llega al mínimo de Binance")}
+        lineas, sin = [], []
+        for a in K.SYMBOLS:
+            for k in activas:
+                c = f"{a}_{k}"
+                if montos.get(c, 0) > 0:
+                    lineas.append(f"• {a} {M.nombre_estrategia(k)}: {usd(montos[c])}")
+                else:
+                    sin.append(f"{a} {M.nombre_estrategia(k)} ({txt_mot.get(motivos.get(c), '—')})")
+        msg = (t("Capital de {m}: {c}. Con el resultado ya cerrado, hay {d} para repartir.", m=t(K.NOMBRE_MODO[K.MODO]),
+                 c=usd(nuevo), d=usd(total)) + "\n\n" + t(
+                 "El bot recomienda repartirlo así, con más dinero para las estrategias que mejor funcionaron en el tipo de "
+                 "mercado de hoy de cada moneda:") + "\n" + "\n".join(lineas) +
+               (("\n\n" + t("Sin capital:") + " " + "; ".join(sin) + ".") if sin else "") + "\n\n" +
+               t("Reemplaza los montos que tenías. Las partes con una posición abierta toman el monto nuevo cuando la "
+                 "cierran. ¿Guardar?"))
+        if not preguntar(self, t("Capital de cada modo"), msg, t("Guardar y repartir"), t("Cancelar")):
+            return
+        caps = PT.leer_ajustes().get("capital", {})
+        for m_, sp in self.sp_capital.items():
+            caps[m_] = round(float(sp.value()), 2)
+        PT.guardar_ajustes(capital=caps)
+        asig = {k_: 0.0 for k_ in (PT.asignacion_actual() or {})}
+        asig.update(montos)
+        PT.guardar_asignacion(asig)
+        PT.configurar_modo(K.MODO)
+        PT.log(t("Capital y montos repartidos como recomienda el bot: {l}.", l=", ".join(
+            f"{k_} {num(v)}" for k_, v in montos.items() if v > 0)))
+        self._montos_sucios = False
+        self._pintar_modo()
+        self.bot.revisar_ahora()
+        QTimer.singleShot(2500, lambda: (self.refrescar(), self._llenar_montos(forzar=True)))
+        self.lbl_cap_res.setText(t("Guardado y repartido. Se aplica en unos segundos; lo ves en Estrategias y Posiciones."))
         self.lbl_cap_res.setStyleSheet(f"font-size:13px; color:{GAIN}")
 
     def _revisar_capital(self):

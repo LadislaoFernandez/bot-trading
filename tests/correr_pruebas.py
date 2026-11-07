@@ -207,6 +207,20 @@ def prueba_laboratorio():
     print(f"6) laboratorio: {len(nuevas)} candidatas en una corrida corta, todas validadas y sin repetir familias")
 
 
+def prueba_reparto_recomendado():
+    import auto
+    with open(HIST, encoding="utf-8") as f:
+        h = json.load(f)
+    regs = {"BTC": "Tendencia bajista", "ETH": "Tendencia bajista", "SOL": "Lateral"}
+    for act in (["TL", "BREAKOUT", "SUPERTREND"], ["TL"], ["MR", "RSI2"], ["RSI2"]):
+        m, mot = auto.montos_recomendados(h, regs, act, 300, minimo=lambda k, a: {"BTC": 30, "ETH": 8, "SOL": 3}[a])
+        assert 299.8 <= sum(m.values()) <= 300.0 + 1e-6, (act, sum(m.values()))
+        assert max(m.values()) <= 300 * auto.TOPE_PARTE + 0.01 or len([v for v in m.values() if v > 0]) * auto.TOPE_PARTE < 1
+        for k, v in m.items():
+            assert v == 0 or v >= {"BTC": 30, "ETH": 8, "SOL": 3}[k.split("_", 1)[0]], (k, v)
+    print("7) reparto recomendado: suma el capital, respeta el tope por parte y el mínimo de Binance")
+
+
 def prueba_actualizador():
     import actualizador as AC
     import config as K
@@ -240,4 +254,5 @@ if __name__ == "__main__":
     prueba_actualizador()
     prueba_reglas()
     prueba_laboratorio()
+    prueba_reparto_recomendado()
     print(f"TODO OK en {time.time() - t0:.0f} s")

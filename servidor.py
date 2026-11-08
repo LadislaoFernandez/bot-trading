@@ -308,7 +308,32 @@ class Servicio:
 
 
 # ------------------------------------------------------------------ API HTTPS
+class ServidorTLS(ThreadingHTTPServer):
+    """HTTPS donde el saludo TLS se hace en el hilo de cada conexión, con tiempo límite: un cliente que abre el puerto y
+    no manda nada (los escáneres de internet lo hacen todo el tiempo) no traba a los demás."""
+    daemon_threads = True
+
+    def __init__(self, direccion, manejador, ctx):
+        super().__init__(direccion, manejador)
+        self.ctx = ctx
+
+    def finish_request(self, request, client_address):
+        request.settimeout(20)
+        try:
+            tls = self.ctx.wrap_socket(request, server_side=True)
+        except (ssl.SSLError, OSError):
+            return
+        try:
+            self.RequestHandlerClass(tls, client_address, self)
+        finally:
+            try:
+                tls.close()
+            except OSError:
+                pass
+
+
 class Manejador(BaseHTTPRequestHandler):
+    timeout = 20
     servicio = None
     token = ""
     fallos = {}  # ip -> (cantidad, hora del último)
@@ -382,11 +407,10 @@ def correr():
     srv = Servicio()
     srv.arrancar()
     Manejador.servicio, Manejador.token = srv, c["token"]
-    httpd = ThreadingHTTPServer(("0.0.0.0", int(c.get("puerto", 8443))), Manejador)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(CERT, CLAVE)
-    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd = ServidorTLS(("0.0.0.0", int(c.get("puerto", 8443))), Manejador, ctx)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     PT.log(t("Servidor del bot {v} corriendo (modo {m}); las apps de control se conectan por el puerto {p}.",
              v=K.VERSION, m=t(K.NOMBRE_MODO[K.MODO]), p=c.get("puerto", 8443)))

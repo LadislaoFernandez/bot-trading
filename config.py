@@ -38,9 +38,18 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.10.1"
+VERSION = "1.11"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.11", "08/11/2026", [
+        "Bot en la nube: el bot puede correr en un servidor gratis de Oracle Cloud las 24 horas, sin depender de la PC. "
+        "Guía paso a paso en SERVIDOR.md e instalación con un solo comando.",
+        "Apps de control remoto para Windows y Android: se conectan al servidor con un código de conexión (HTTPS con el "
+        "certificado del servidor fijado) y muestran resumen, posiciones, operaciones, estrategias, avisos y registro. "
+        "Permiten prender o apagar el bot, el piloto y el laboratorio, revisar ahora, reanudar y cambiar riesgo y capital.",
+        "Capital mínimo recomendado más claro: dice el total, cuántas partes y cuánto por parte, y aparece también en "
+        "Configuración junto al capital.",
+    ]),
     ("1.10.1", "07/11/2026", [
         "Inicio con Windows: la app arranca directamente con el Python que trae el instalador. Antes, sin un Python "
         "instalado en el sistema, se abría la carpeta del bot en vez de la app.",

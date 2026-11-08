@@ -75,6 +75,8 @@ jobs:
   publicar:
     needs: [pruebas, servidor]
     runs-on: windows-latest
+    outputs:
+      v: ${{ steps.ver.outputs.v }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -124,3 +126,11 @@ jobs:
           files: |
             dist/actualizacion.zip
             dist/BotTrading-Setup-*.exe
+
+  android:
+    # la app de control para Android, adjunta a la misma versión
+    needs: publicar
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publicar
+    uses: ./.github/workflows/android.yml
+    with:
+      etiqueta: v${{ needs.publicar.outputs.v }}

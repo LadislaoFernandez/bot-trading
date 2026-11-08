@@ -6,6 +6,12 @@ En simulaciones con el código del bot, de enero 2023 a octubre 2026 y con 300 U
 
 > Operar con apalancamiento es riesgoso y podés perder dinero. Los resultados pasados no garantizan resultados futuros. Probalo primero en modo simulado y en la demo de Binance.
 
+## Bot en la nube (24 horas, gratis)
+
+El bot puede correr en un servidor gratis de **Oracle Cloud**, así no depende de que la PC esté prendida. Se controla con
+las apps de **control remoto para Windows** (viene con el instalador) y **Android** (`BotTrading-Control.apk` en cada
+versión). La guía paso a paso está en **[SERVIDOR.md](SERVIDOR.md)**.
+
 ## Instalar
 
 1. Bajá **`BotTrading-Setup-X.Y.exe`** de la [última versión](https://github.com/LadislaoFernandez/bot-trading/releases/latest).
@@ -45,6 +51,12 @@ python backtest.py --desde 2026-01-01 --hasta 2026-11-01
 | `engine.py` | Indicadores y reglas de cada estrategia |
 | `paper_trader.py` / `live.py` | El bot: modo simulado / órdenes en Binance |
 | `auto.py` | Piloto automático: estrategias base, reequilibrio diario en partes iguales y revisión mensual |
+| `nucleo.py` | El bot sin pantalla: precios, mercado, historial, el bot que opera y el laboratorio |
+| `servidor.py` | Bot en un servidor, con la API segura para las apps de control |
+| `cliente_api.py` | Cliente de la API (HTTPS con certificado fijado), lo usan las dos apps de control |
+| `control.py` | Control remoto para Windows |
+| `android/` | Control remoto para Android (Kivy; el APK se compila en GitHub Actions) |
+| `instalar_servidor.sh` | Instala el bot en un servidor Ubuntu (Oracle Cloud) como servicio |
 | `reglas.py` / `catalogo.py` | Estrategias definidas como datos (JSON) y su catálogo (`estrategias/`, `mis_estrategias/`) |
 | `laboratorio.py` | Laboratorio: busca estrategias nuevas y propone las que pasan la prueba fuera de muestra |
 | `alertas.py` | Avisos de la app (revisión mensual del piloto, candidatas nuevas) |

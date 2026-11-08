@@ -5,3 +5,4 @@
 *.py text eol=lf
 *.ico binary
 *.gz binary
+*.sh text eol=lf

@@ -450,155 +450,9 @@ def inicio_windows(activar=None):
 
 
 # ------------------------------------------------------------------ precios en vivo
-class PriceFeed(threading.Thread):
-    """Consulta precios de Binance Futuros cada 10 s (datos públicos)."""
-
-    def __init__(self):
-        super().__init__(daemon=True)
-        self.prices, self.updated, self.error = {}, None, None
-        self.stop = threading.Event()
-
-    def run(self):
-        import ccxt
-        ex = ccxt.binanceusdm({"enableRateLimit": True})
-        syms = list(K.SYMBOLS.values())
-        while not self.stop.is_set():
-            try:
-                tk = ex.fetch_tickers(syms)
-                for a, sym in K.SYMBOLS.items():
-                    x = tk.get(sym)
-                    if x and x.get("last"):
-                        self.prices[a] = {"precio": float(x["last"]), "cambio": x.get("percentage")}
-                self.updated, self.error = time.time(), None
-            except Exception as e:
-                self.error = f"{type(e).__name__}"
-            self.stop.wait(10)
+from nucleo import Bot, MarketWorker, PriceFeed, prepare_rows  # noqa: E402  (el bot, sin pantalla: ver nucleo.py)
 
 
-class MarketWorker(threading.Thread):
-    """Lee el mercado cada 5 minutos y mantiene el historial de estrategias por tipo de mercado."""
-
-    def __init__(self):
-        super().__init__(daemon=True)
-        self.analisis, self.actualizado, self.error = {}, None, None
-        self.minimos = {}  # moneda -> tamaño mínimo de orden en Binance (USDT), de los datos públicos del mercado
-        self.historial = M.cargar()
-        self.hist_estado, self.hist_prog = ("listo" if self.historial else "pendiente"), (0.0, "")
-        self.recalcular, self.stop = threading.Event(), threading.Event()
-
-    def _leer_minimos(self, ex):
-        """Tamaño mínimo por orden de cada moneda: el mayor entre el mínimo en USDT y la cantidad mínima por el precio."""
-        try:
-            if not ex.markets:
-                ex.load_markets()
-            for a, sym in K.SYMBOLS.items():
-                m, px = ex.market(sym), (self.analisis.get(a) or {}).get("precio")
-                lim = m.get("limits", {})
-                costo = float((lim.get("cost") or {}).get("min") or 5.0)
-                cant = float((lim.get("amount") or {}).get("min") or 0.0)
-                self.minimos[a] = max(costo, cant * px) if px else costo
-        except Exception:
-            pass
-
-    def _necesita_historial(self):
-        h = self.historial
-        from engine import STRATS
-        faltan = h and any(s not in h.get("estrategias", {}) for s in STRATS)  # hay estrategias nuevas
-        viejo = h and h.get("version") != 2  # historial de antes de la 1.9 (sin resultado por año y semestre)
-        mes_nuevo = h and datetime.fromtimestamp(h.get("calculado", 0)).strftime("%Y-%m") != datetime.now().strftime("%Y-%m")
-        return (self.recalcular.is_set() or not h or faltan or viejo or mes_nuevo
-                or time.time() - h.get("calculado", 0) > 7 * 86400)
-
-    def run(self):
-        import ccxt
-        from data import fetch_range, fetch_recent
-        ex = ccxt.binanceusdm({"enableRateLimit": True})
-        prox = 0
-        while not self.stop.is_set():
-            if time.time() >= prox:
-                try:
-                    for a, sym in K.SYMBOLS.items():
-                        rows = fetch_recent(ex, sym, K.TIMEFRAME, 1500)
-                        rows = [r for r in rows if r[0] + K.BAR_MS <= time.time() * 1000]
-                        self.analisis[a] = M.analisis(prepare_rows(rows))
-                    self._leer_minimos(ex)
-                    self.actualizado, self.error = time.time(), None
-                except Exception as e:
-                    self.error = f"{type(e).__name__}"
-                prox = time.time() + 300
-            if self._necesita_historial():
-                self.recalcular.clear()
-                self.hist_estado = "calculando"
-                try:
-                    desde = int(datetime(2021, 12, 1).timestamp() * 1000)
-                    h = M.calcular_historial(lambda a: fetch_range(ex, K.SYMBOLS[a], K.TIMEFRAME, desde, int(time.time() * 1000)),
-                                             lambda f, x: setattr(self, "hist_prog", (f, x)))
-                    M.guardar(h); self.historial = h; self.hist_estado = "listo"
-                except Exception as e:
-                    self.hist_estado = "error"; self.hist_prog = (0.0, f"{type(e).__name__}: {e}"[:120])
-            self.stop.wait(5)
-
-
-def prepare_rows(rows):
-    from engine import prepare
-    return prepare(rows, K.BAR_MS, K.HTF_MS)
-
-
-# ------------------------------------------------------------------ control del bot
-class Bot:
-    def __init__(self):
-        self.thread, self.stop_ev, self.wake_ev = None, None, None
-
-    def corriendo(self):
-        return self.thread is not None and self.thread.is_alive()
-
-    def iniciar(self):
-        if self.corriendo():
-            return
-        self.stop_ev, self.wake_ev = threading.Event(), threading.Event()
-        modo, stop, wake = K.MODO, self.stop_ev, self.wake_ev
-        PT.STATUS.update(estado="revisando", ultimo_error=None, proxima_revision=None)
-
-        def correr():
-            st = PT.load_state()
-            if modo == "simulado":
-                PT.run_loop(st, stop, None, wake); return
-            cred = CL.cargar(modo)
-            if not cred:
-                PT.STATUS.update(estado="detenido",
-                                 ultimo_error=t("Faltan las claves de API de este modo. Cargalas en Configuración."))
-                return
-            try:
-                br = LV.Broker(modo, *cred)
-                if not os.path.exists(K.STATE_FILE):  # primera vez en este modo: controla que alcance el saldo
-                    libre = br.saldo()["libre"]
-                    if libre < K.INITIAL_CAPITAL:
-                        PT.STATUS.update(estado="detenido", ultimo_error=t(
-                            "El saldo libre en Binance ({l}) es menor al capital del bot ({c}).",
-                            l=usd(libre), c=usd(K.INITIAL_CAPITAL)))
-                        return
-            except Exception as e:
-                PT.STATUS.update(estado="detenido",
-                                 ultimo_error=(t("No se pudo conectar a Binance:") + f" {type(e).__name__}: {e}")[:220])
-                PT.log((t("No se pudo conectar a Binance ({m}):", m=t(K.NOMBRE_MODO[modo])) + f" {e}")[:300])
-                return
-            self.broker = br
-            PT.run_loop(st, stop, None, wake, paso=LV.step_live, cliente=br)
-
-        self.thread = threading.Thread(target=correr, daemon=True)
-        self.thread.start()
-
-    def detener(self):
-        if self.corriendo() and self.stop_ev:
-            self.stop_ev.set()
-            self.thread.join(timeout=15)
-
-    def revisar_ahora(self):
-        if self.corriendo() and self.wake_ev:
-            self.wake_ev.set()
-
-
-# ------------------------------------------------------------------ widgets dibujados
 class RelojVela(QWidget):
     """Anillo con el avance de la vela de 1 hora y la cuenta regresiva a la próxima revisión."""
 
@@ -1118,7 +972,7 @@ class Ventana(QMainWindow):
             ga.addWidget(lbl(tit, rol="muted", size=12), r, 0, Qt.AlignTop)
             x = lbl("", size=13, wrap=True); ga.addWidget(x, r, 1); self.auto_info[k] = x
         ga.setColumnStretch(1, 1); pav.addWidget(self.w_auto_info)
-        self.lbl_cap_min = lbl("", size=12, wrap=True); pav.addWidget(self.lbl_cap_min)
+        self.lbl_cap_min = lbl("", size=13, wrap=True); pav.addSpacing(4); pav.addWidget(self.lbl_cap_min)
         iv.addWidget(pa)
 
         # montos (modo manual)
@@ -1246,6 +1100,45 @@ class Ventana(QMainWindow):
         v.addWidget(scroll(inner), 1)
         return w
 
+    def _detalle_capital_minimo(self):
+        """(texto, color) del capital mínimo recomendado para las partes que usa el bot, o None si no aplica."""
+        if K.MODO == "simulado" or not self.snap:
+            return None
+        import auto as AU
+        au = self.snap.get("auto_estado") or {}
+        if self.snap.get("auto"):
+            estr = au.get("dentro") if au.get("dentro") is not None else AU.base()
+        else:
+            estr = self.snap.get("activas", [])
+        partes = [(s_, a) for s_ in estr for a in K.SYMBOLS]
+        mins = {(s_, a): self._monto_minimo(s_, a) for s_, a in partes}
+        if not partes or any(not v for v in mins.values()):
+            return None
+        (s_max, a_max), m_max = max(mins.items(), key=lambda x: x[1])
+        por_parte = m_max * 1.25
+        total = por_parte * len(partes)
+        disp = self._disponible()
+        alcanza = disp >= total
+        txt = (t("Capital mínimo recomendado: {t} en total", t=usd(total, 0)) + "\n" +
+               t("Son {n} partes de {p} cada una. Lo que más pide hoy Binance es la parte de {e} en {a}: {m}, y se le suma "
+                 "un 25 % de margen. Cambia todos los días con el movimiento del mercado, y baja si subís el riesgo por "
+                 "operación.", n=len(partes), p=usd(por_parte, 0), e=M.nombre_estrategia(s_max), a=a_max,
+                 m=usd(m_max, 0)) + "\n" +
+               (t("El bot tiene {d}: alcanza para las {n} partes.", d=usd(disp, 0), n=len(partes)) if alcanza else
+                t("El bot tiene {d}: no alcanza. Las partes que no llegan al mínimo de Binance quedan sin operar ese día "
+                  "y su dinero va a las demás.", d=usd(disp, 0))))
+        return txt, (GAIN if alcanza else AMBER)
+
+    def _pintar_capital_minimo(self, etiqueta):
+        d = self._detalle_capital_minimo()
+        if not d:
+            etiqueta.setVisible(False); return
+        txt, col = d
+        etiqueta.setText(txt)
+        etiqueta.setStyleSheet(f"font-size:13px; color:{TEXT}; border:1px solid {col}; border-left:4px solid {col}; "
+                               f"border-radius:8px; padding:10px 12px; background:transparent")
+        etiqueta.setVisible(True)
+
     def _capital_minimo(self, partes):
         """Capital que hace falta para que todas las partes lleguen al mínimo de Binance con el reparto en partes iguales
         (con un margen del 25 % para cuando el mercado se mueve más)."""
@@ -1345,17 +1238,7 @@ class Ventana(QMainWindow):
             self.lbl_auto.setText(t("Piloto apagado: usa las estrategias que actives abajo, con los montos que elijas."))
             self.lbl_auto.setStyleSheet(f"font-size:13px; font-weight:600; color:{TEXT}")
             partes = [(s, a) for s in activas for a in K.SYMBOLS]
-        cm = self._capital_minimo(partes) if partes and K.MODO != "simulado" else None
-        if cm:
-            disp = self._disponible()
-            ok_cap = disp >= cm
-            self.lbl_cap_min.setText(t("Capital mínimo recomendado para usar las {n} partes: {c} (hoy el bot tiene {d}). Con "
-                                       "menos, a las partes de BTC no les alcanza para el mínimo de Binance cuando el mercado "
-                                       "se mueve mucho y quedan sin operar.", n=len(partes), c=usd(cm, 0), d=usd(disp, 0)))
-            self.lbl_cap_min.setStyleSheet(f"font-size:12px; color:{MUTED if ok_cap else AMBER}")
-            self.lbl_cap_min.setVisible(True)
-        else:
-            self.lbl_cap_min.setVisible(False)
+        self._pintar_capital_minimo(self.lbl_cap_min)
         import catalogo
         for k, (sw, rec, porque, celdas) in self.estr_ui.items():
             if auto:
@@ -1944,6 +1827,8 @@ class Ventana(QMainWindow):
         h.addStretch()
         pv.addLayout(h)
         self.lbl_cap_res = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_cap_res)
+        self.lbl_cap_min_cfg = lbl("", size=13, wrap=True); self.lbl_cap_min_cfg.setVisible(False)
+        pv.addWidget(self.lbl_cap_min_cfg)
         self.lbl_cap_aviso = lbl("", size=13, wrap=True, color=LOSS); self.lbl_cap_aviso.setVisible(False)
         pv.addWidget(self.lbl_cap_aviso)
 
@@ -2308,6 +2193,8 @@ class Ventana(QMainWindow):
     def _revisar_capital(self):
         """Avisa si el capital guardado del modo no coincide con el que usa el bot."""
         snap = self.snap or {}
+        if hasattr(self, "lbl_cap_min_cfg"):
+            self._pintar_capital_minimo(self.lbl_cap_min_cfg)
         if not snap.get("hay_estado") or not hasattr(self, "lbl_cap_aviso"):
             return
         efectivo, guardado = snap.get("base", K.INITIAL_CAPITAL), K.INITIAL_CAPITAL

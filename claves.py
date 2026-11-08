@@ -1,17 +1,23 @@
-"""Guarda las claves de API de Binance cifradas con la protección de datos de Windows (DPAPI).
+"""Guarda las claves de API de Binance.
 
-Solo el mismo usuario de Windows, en la misma PC, puede descifrarlas. Las claves nunca se escriben en texto plano.
+En Windows van cifradas con la protección de datos de Windows (DPAPI): solo el mismo usuario, en la misma PC, puede
+descifrarlas. En el servidor (Linux) van en un archivo que solo puede leer el usuario del bot (permisos 600), dentro de
+la máquina virtual que solo administra el dueño. Las claves nunca se mandan por la red ni se muestran completas.
 """
 import ctypes
-import ctypes.wintypes as W
 import json
 import os
+
+WINDOWS = os.name == "nt"
+if WINDOWS:
+    import ctypes.wintypes as W
 
 ARCHIVO = {"demo": "claves_demo.dat", "real": "claves_real.dat"}
 
 
-class _BLOB(ctypes.Structure):
-    _fields_ = [("cbData", W.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+if WINDOWS:
+    class _BLOB(ctypes.Structure):
+        _fields_ = [("cbData", W.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
 
 def _blob(data: bytes):
@@ -20,6 +26,8 @@ def _blob(data: bytes):
 
 
 def _proteger(data: bytes) -> bytes:
+    if not WINDOWS:
+        return data  # en Linux protege el permiso 600 del archivo (ver _escribir)
     entrada, _buf = _blob(data)
     salida = _BLOB()
     if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(entrada), "bot-trading", None, None, None, 0,
@@ -32,6 +40,8 @@ def _proteger(data: bytes) -> bytes:
 
 
 def _desproteger(data: bytes) -> bytes:
+    if not WINDOWS:
+        return data
     entrada, _buf = _blob(data)
     salida = _BLOB()
     if not ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(entrada), None, None, None, None, 0,
@@ -48,9 +58,20 @@ def guardar(modo, api_key, secret):
     datos = json.dumps({"key": api_key.strip(), "secret": secret}).encode("utf-8")
     import archivos
     tmp = f"{ARCHIVO[modo]}.{os.getpid()}.tmp"
-    with open(tmp, "wb") as f:
-        f.write(_proteger(datos))
+    _escribir(tmp, _proteger(datos))
     archivos.reemplazar(tmp, ARCHIVO[modo])
+
+
+def _escribir(ruta, datos):
+    """Escribe el archivo; en Linux, creado directamente con permisos 600 (solo el usuario del bot lo puede leer)."""
+    if WINDOWS:
+        with open(ruta, "wb") as f:
+            f.write(datos)
+        return
+    fd = os.open(ruta, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(datos)
+    os.chmod(ruta, 0o600)
 
 
 def cargar(modo):
@@ -92,8 +113,7 @@ def generar_ed25519():
 def guardar_privada_pendiente(modo, priv, pub):
     """Guarda la clave privada cifrada hasta que el usuario cargue la clave de API que le da Binance."""
     datos = json.dumps({"priv": priv, "pub": pub}).encode("utf-8")
-    with open(f"ed25519_{modo}.dat", "wb") as f:
-        f.write(_proteger(datos))
+    _escribir(f"ed25519_{modo}.dat", _proteger(datos))
 
 
 def cargar_privada_pendiente(modo):

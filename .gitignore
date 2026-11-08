@@ -28,3 +28,7 @@ candidatas/
 alertas.json
 laboratorio_estado.json
 datos_lab/
+servidor_config.json
+servidor.key
+servidor.crt
+venv/

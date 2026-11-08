@@ -33,7 +33,7 @@ def _es_codigo(x):
         return True
     if "/" in x or os.path.basename(x) in PROTEGIDOS:
         return False  # ni datos del usuario ni carpetas propias (mis_estrategias, candidatas, respaldos...)
-    return x == "requirements.txt" or not x.lower().endswith(EXT_PROTEGIDAS)
+    return x in ("requirements.txt", "requirements_servidor.txt") or not x.lower().endswith(EXT_PROTEGIDAS)
 
 
 def version_tupla(v):
@@ -114,7 +114,8 @@ def instalar(info, progreso=None, carpeta="."):
         if not os.path.exists(os.path.join(dest, "app.py")):
             raise RuntimeError("zip-sin-app")
         aviso(0.7, "respaldando")
-        req_antes = _hash(os.path.join(carpeta, "requirements.txt"))
+        REQ = "requirements.txt" if os.name == "nt" else "requirements_servidor.txt"  # el servidor no usa la interfaz
+        req_antes = _hash(os.path.join(carpeta, REQ))
         resp = os.path.join(carpeta, "respaldos", K.VERSION)
         os.makedirs(resp, exist_ok=True)
         cambiados = []
@@ -130,11 +131,11 @@ def instalar(info, progreso=None, carpeta="."):
         for src, dst in cambiados:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
-        if _hash(os.path.join(carpeta, "requirements.txt")) != req_antes:
+        if _hash(os.path.join(carpeta, REQ)) != req_antes:
             aviso(0.85, "dependencias")
             flags = 0x08000000 if os.name == "nt" else 0  # sin ventana de consola
             r = subprocess.run([_python_consola(), "-m", "pip", "install", "--disable-pip-version-check", "-q", "-r",
-                                os.path.join(carpeta, "requirements.txt")], cwd=carpeta, capture_output=True, text=True,
+                                os.path.join(carpeta, REQ)], cwd=carpeta, capture_output=True, text=True,
                                creationflags=flags)
             if r.returncode != 0:
                 raise RuntimeError("pip: " + (r.stderr or r.stdout)[-300:])

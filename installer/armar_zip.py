@@ -18,7 +18,7 @@ NO_VAN = {"cambiar_a_app.bat"}
 
 def archivos():
     out = []
-    for patron in ("*.py", "*.bat", "*.vbs", "*.ico", "requirements.txt"):
+    for patron in ("*.py", "*.bat", "*.vbs", "*.ico", "*.sh", "requirements.txt", "requirements_servidor.txt"):
         out += [os.path.basename(p) for p in glob.glob(os.path.join(RAIZ, patron))]
     out += ["estrategias/" + os.path.basename(p) for p in glob.glob(os.path.join(RAIZ, "estrategias", "*.json"))]
     return sorted(set(out) - NO_VAN)

@@ -49,6 +49,7 @@ Source: "..\build\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recur
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"
+Name: "{autoprograms}\{#AppName} - Control remoto"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\control.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"; Tasks: desktopicon
 
 [Registry]

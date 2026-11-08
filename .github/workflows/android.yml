@@ -1,0 +1,72 @@
+# Compila la app de control para Android (APK). Se lanza a mano o desde "Publicar versión".
+name: App Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: "Si se indica (por ejemplo v1.11), adjunta el APK a esa Release"
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      etiqueta:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Dependencias de compilación
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git zip unzip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev >/dev/null
+          pip install -q "buildozer==1.5.0" "cython==0.29.36" pillow
+      - name: Preparar la app (cliente de la API, ícono y versión)
+        run: |
+          cp cliente_api.py android/
+          python - <<'PY'
+          from PIL import Image
+          Image.open("app_icon.ico").convert("RGBA").resize((512, 512)).save("android/icono.png")
+          import re
+          v = re.search(r'^VERSION = "([^"]+)"', open("config.py", encoding="utf-8").read(), re.M).group(1)
+          s = open("android/buildozer.spec", encoding="utf-8").read().replace("version = 1.0", f"version = {v}")
+          open("android/buildozer.spec", "w", encoding="utf-8").write(s)
+          print("versión", v)
+          PY
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            android/.buildozer
+          key: buildozer-${{ hashFiles('android/buildozer.spec') }}
+      - name: Compilar el APK
+        working-directory: android
+        run: yes | buildozer android debug
+      - name: Nombre final
+        run: |
+          mkdir -p dist
+          cp android/bin/*.apk dist/BotTrading-Control.apk
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: dist/BotTrading-Control.apk
+      - name: Adjuntar a la Release
+        if: inputs.etiqueta != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.etiqueta }}" dist/BotTrading-Control.apk --clobber -R "${{ github.repository }}"

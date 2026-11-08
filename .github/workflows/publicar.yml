@@ -35,6 +35,8 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq libegl1 libxkbcommon0 libgl1 libfontconfig1 libdbus-1-3 >/dev/null
           pip install -q "PySide6-Essentials>=6.7"
           python tests/prueba_rueda.py
+          pip install -q "cryptography>=42"
+          python tests/prueba_control.py
 
   servidor:
     # instala el servidor desde cero en una máquina Ubuntu limpia, igual que en Oracle Cloud, y prueba la API
@@ -44,7 +46,7 @@ jobs:
       - name: Armar el paquete
         run: python3 installer/armar_zip.py
       - name: Instalar el servidor con el instalador
-        run: ZIP_LOCAL="$PWD/dist/actualizacion.zip" bash instalar_servidor.sh
+        run: ZIP_LOCAL="$PWD/dist/actualizacion.zip" IP=127.0.0.1 bash instalar_servidor.sh
       - name: Probar el servicio y la API con el cliente de las apps
         run: |
           sleep 15
@@ -54,11 +56,13 @@ jobs:
           import sys, time
           import cliente_api as C
           cl = C.Cliente(sys.argv[1])
+          e = None
           for _ in range(10):
               try:
                   e = cl.estado(); break
-              except C.ErrorConexion:
-                  time.sleep(3)
+              except C.ErrorConexion as x:
+                  print("todavía no:", x); time.sleep(3)
+          assert e, "no se pudo conectar"
           print("servidor", e["version"], e["modo"], "piloto", e["snap"]["auto"])
           assert e["servidor"] and e["modo"] == "simulado"
           assert cl.accion("laboratorio", activo=False) == "ok"

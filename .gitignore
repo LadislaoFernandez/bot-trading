@@ -32,3 +32,7 @@ servidor_config.json
 servidor.key
 servidor.crt
 venv/
+android/.buildozer/
+android/bin/
+android/cliente_api.py
+android/icono.png

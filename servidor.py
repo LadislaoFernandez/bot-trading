@@ -181,7 +181,7 @@ class Servicio:
             for k in ("curva", "decisiones"):
                 snap.pop(k, None)
             ops = snap.pop("operaciones", [])
-            snap["ultimas_operaciones"] = ops[-30:]
+            snap["ultimas_operaciones"] = ops[:30]  # vienen de la más reciente a la más vieja
             aj = PT.leer_ajustes()
             hist = self.mkt.historial or {}
             import auto as AU

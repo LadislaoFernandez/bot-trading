@@ -1,0 +1,399 @@
+"""Bot de trading — control remoto para Android.
+
+Se conecta al bot que corre en el servidor (Oracle Cloud) con el código de conexión (BOT1-...), por HTTPS con el
+certificado del servidor fijado. Muestra el estado, las posiciones, las operaciones y los avisos, y deja prender o apagar
+el bot, el piloto y el laboratorio, revisar ahora, reanudar después del límite de pérdida y cambiar el riesgo y el capital.
+La app no necesita quedar abierta: el bot corre en el servidor.
+"""
+import json
+import os
+import threading
+import time
+from datetime import datetime
+
+from kivy.app import App
+from kivy.clock import Clock, mainthread
+from kivy.core.window import Window
+from kivy.metrics import dp, sp
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.switch import Switch
+from kivy.uix.textinput import TextInput
+from kivy.utils import get_color_from_hex as hexc
+
+import cliente_api as C
+
+FONDO, PANEL, TEXTO, GRIS = hexc("#0f1115"), hexc("#181b22"), hexc("#e8eaf0"), hexc("#8b90a0")
+VERDE, ROJO, AMBAR, ACENTO = hexc("#2fbf71"), hexc("#e5484d"), hexc("#f5a524"), hexc("#f08a24")
+Window.clearcolor = FONDO
+PIL_BASE = ("BREAKOUT", "TL")
+
+
+def num(v, d=2, signo=False):
+    if v is None:
+        return "—"
+    s = f"{abs(v):,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return ("+" if signo and v > 0 else "-" if v < 0 else "") + s
+
+
+def usd(v, d=2, signo=False):
+    return f"{num(v, d, signo)} USDT"
+
+
+def pct(v, d=1, signo=False):
+    return f"{num(v, d, signo)} %"
+
+
+def color(v):
+    return GRIS if v is None else (VERDE if v > 0 else ROJO if v < 0 else TEXTO)
+
+
+class Texto(Label):
+    def __init__(self, texto="", tam=15, col=TEXTO, negrita=False, **kw):
+        super().__init__(text=texto, font_size=sp(tam), color=col, bold=negrita, halign="left", valign="middle",
+                         size_hint_y=None, **kw)
+        self.bind(width=lambda *_: setattr(self, "text_size", (self.width, None)))
+        self.bind(texture_size=lambda *_: setattr(self, "height", self.texture_size[1] + dp(6)))
+
+
+class Boton(Button):
+    def __init__(self, texto, accion, col=PANEL, **kw):
+        super().__init__(text=texto, font_size=sp(15), size_hint_y=None, height=dp(48), background_normal="",
+                         background_color=col, color=TEXTO, **kw)
+        self.bind(on_release=lambda *_: accion())
+
+
+class Tarjeta(BoxLayout):
+    def __init__(self, **kw):
+        super().__init__(orientation="vertical", size_hint_y=None, padding=dp(14), spacing=dp(6), **kw)
+        self.bind(minimum_height=self.setter("height"))
+        from kivy.graphics import Color, RoundedRectangle
+        with self.canvas.before:
+            Color(*PANEL)
+            self._r = RoundedRectangle(radius=[dp(12)])
+        self.bind(pos=lambda *_: setattr(self._r, "pos", self.pos), size=lambda *_: setattr(self._r, "size", self.size))
+
+
+def pagina():
+    sv = ScrollView(do_scroll_x=False)
+    caja = BoxLayout(orientation="vertical", size_hint_y=None, padding=dp(12), spacing=dp(12))
+    caja.bind(minimum_height=caja.setter("height"))
+    sv.add_widget(caja)
+    return sv, caja
+
+
+def preguntar(titulo, texto, si, accion, al_cancelar=None):
+    caja = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(12))
+    caja.add_widget(Texto(texto))
+    fila = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
+    pop = Popup(title=titulo, content=caja, size_hint=(0.92, None), height=dp(300), auto_dismiss=False)
+    fila.add_widget(Boton("Cancelar", lambda: (pop.dismiss(), al_cancelar and al_cancelar())))
+    fila.add_widget(Boton(si, lambda: (pop.dismiss(), accion()), col=ACENTO))
+    caja.add_widget(fila)
+    pop.open()
+
+
+def avisar(titulo, texto):
+    caja = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(12))
+    caja.add_widget(Texto(texto))
+    pop = Popup(title=titulo, content=caja, size_hint=(0.92, None), height=dp(280))
+    caja.add_widget(Boton("OK", pop.dismiss, col=ACENTO))
+    pop.open()
+
+
+class ControlApp(App):
+    title = "Bot de trading"
+
+    def build(self):
+        self.archivo = os.path.join(self.user_data_dir, "codigo.json")
+        self.cliente, self.datos, self.error, self.pestana = None, None, None, "resumen"
+        self.raiz = BoxLayout(orientation="vertical")
+        cod = self._leer_codigo()
+        if cod:
+            self._conectar(cod)
+        else:
+            self._pantalla_codigo()
+        return self.raiz
+
+    # ---------- código de conexión (en el almacenamiento privado de la app)
+    def _leer_codigo(self):
+        try:
+            with open(self.archivo, encoding="utf-8") as f:
+                return json.load(f)["codigo"]
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def _guardar_codigo(self, cod):
+        with open(self.archivo, "w", encoding="utf-8") as f:
+            json.dump({"codigo": cod}, f)
+
+    def _pantalla_codigo(self, error=""):
+        self.raiz.clear_widgets()
+        sv, caja = pagina()
+        caja.add_widget(Texto("Conectar con el servidor", 22, negrita=True))
+        caja.add_widget(Texto("Pegá el código de conexión del servidor (empieza con BOT1-). Lo muestra el servidor al "
+                              "instalarlo, o con: venv/bin/python servidor.py codigo", 14, GRIS))
+        if error:
+            caja.add_widget(Texto(error, 14, ROJO))
+        entrada = TextInput(multiline=True, size_hint_y=None, height=dp(140), font_size=sp(14),
+                            background_color=PANEL, foreground_color=TEXTO)
+        caja.add_widget(entrada)
+
+        def conectar():
+            cod = "".join(entrada.text.split())
+            try:
+                C.leer_codigo(cod)
+            except ValueError as e:
+                return self._pantalla_codigo(str(e))
+            self._guardar_codigo(cod)
+            self._conectar(cod)
+        caja.add_widget(Boton("Conectar", conectar, col=ACENTO))
+        self.raiz.add_widget(sv)
+
+    def _conectar(self, cod):
+        try:
+            self.cliente = C.Cliente(cod)
+        except ValueError as e:
+            return self._pantalla_codigo(str(e))
+        self._armar()
+        threading.Thread(target=self._sondeo, daemon=True).start()
+
+    # ---------- estructura: contenido + barra de pestañas abajo
+    def _armar(self):
+        self.raiz.clear_widgets()
+        self.cabecera = Texto("Conectando…", 13, GRIS, padding=(dp(12), dp(6)))
+        self.raiz.add_widget(self.cabecera)
+        self.cuerpo = BoxLayout()
+        self.raiz.add_widget(self.cuerpo)
+        barra = BoxLayout(size_hint_y=None, height=dp(56), spacing=dp(2))
+        self.tabs = {}
+        for k, n in (("resumen", "Resumen"), ("posiciones", "Posiciones"), ("operaciones", "Operaciones"),
+                     ("avisos", "Avisos"), ("control", "Control")):
+            b = Button(text=n, font_size=sp(13), background_normal="", background_color=PANEL, color=TEXTO)
+            b.bind(on_release=lambda _b, k=k: self._ir(k))
+            barra.add_widget(b); self.tabs[k] = b
+        self.raiz.add_widget(barra)
+        self._ir("resumen")
+
+    def _ir(self, k):
+        self.pestana = k
+        for kk, b in self.tabs.items():
+            b.color = ACENTO if kk == k else TEXTO
+        self._pintar()
+
+    # ---------- datos
+    def _sondeo(self):
+        while True:
+            try:
+                d = self.cliente.estado()
+                self.datos, self.error = d, None
+            except (C.ErrorConexion, C.ErrorServidor) as e:
+                self.error = str(e)
+            except Exception as e:
+                self.error = f"{type(e).__name__}: {e}"
+            self._pintar(desde_sondeo=True)
+            time.sleep(10)
+
+    def _accion(self, nombre, ok="", **datos):
+        def tarea():
+            try:
+                self.cliente.accion(nombre, **datos)
+                if ok:
+                    self._avisar("Servidor", ok)
+                self.datos = self.cliente.estado()
+            except (C.ErrorConexion, C.ErrorServidor) as e:
+                self._avisar("Servidor", str(e))
+            self._pintar()
+        threading.Thread(target=tarea, daemon=True).start()
+
+    @mainthread
+    def _avisar(self, titulo, texto):
+        avisar(titulo, texto)
+
+    # ---------- pantallas
+    @mainthread
+    def _pintar(self, *_, desde_sondeo=False):
+        if not hasattr(self, "cuerpo"):
+            return
+        d = self.datos
+        if self.error:
+            self.cabecera.text = "Sin conexión: " + self.error[:140]
+            self.cabecera.color = ROJO
+        elif d:
+            b = d["bot"]
+            estado = "Frenado" if d["snap"].get("frenado") else ("Corriendo" if b.get("corriendo") else "Detenido")
+            prox = (f" · próxima revisión {datetime.fromtimestamp(b['proxima_revision']):%H:%M}"
+                    if b.get("proxima_revision") else "")
+            self.cabecera.text = f"{estado} · {d.get('nombre_modo', '')} · servidor {d.get('version', '')}{prox}"
+            self.cabecera.color = ROJO if d["snap"].get("frenado") else (VERDE if b.get("corriendo") else AMBAR)
+        if desde_sondeo and self.pestana == "control" and self.cuerpo.children:
+            return  # no rehace la pantalla de control mientras escribís (se actualiza al entrar o al hacer una acción)
+        self.cuerpo.clear_widgets()
+        if not d:
+            sv, caja = pagina(); caja.add_widget(Texto("Esperando datos del servidor…", 15, GRIS))
+            self.cuerpo.add_widget(sv); return
+        getattr(self, "_p_" + self.pestana)(d)
+        sl = d.get("sin_leer") or 0
+        self.tabs["avisos"].text = f"Avisos ({sl})" if sl else "Avisos"
+
+    def _p_resumen(self, d):
+        s = d["snap"]
+        sv, caja = pagina()
+        t = Tarjeta()
+        t.add_widget(Texto("Saldo del bot", 13, GRIS))
+        t.add_widget(Texto(usd(s["saldo"]), 30, negrita=True))
+        t.add_widget(Texto(f"{pct(s['rendimiento_pct'], 2, True)} sobre {usd(s['base'])}", 14, color(s["rendimiento_pct"])))
+        g = GridLayout(cols=2, size_hint_y=None, spacing=dp(6)); g.bind(minimum_height=g.setter("height"))
+        for tit, v, c in (("Resultado cerrado", usd(s["realizado"], 2, True), color(s["realizado"])),
+                          ("Resultado abierto", usd(s["abierto"], 2, True), color(s["abierto"])),
+                          ("Sin asignar", usd(s["libre"]), TEXTO),
+                          ("Operaciones", str(s["resumen_ops"]["n"]), TEXTO)):
+            g.add_widget(Texto(tit, 13, GRIS)); g.add_widget(Texto(v, 15, c, negrita=True))
+        t.add_widget(g)
+        caja.add_widget(t)
+        if s.get("frenado"):
+            f = Tarjeta()
+            f.add_widget(Texto("El bot está frenado por el límite de pérdida: no abre operaciones nuevas.", 14, AMBAR))
+            f.add_widget(Boton("Reanudar", lambda: preguntar("Reanudar", "¿Permitir que el bot vuelva a abrir "
+                                                             "operaciones? El límite se mide desde el saldo actual.",
+                                                             "Reanudar", lambda: self._accion("reanudar")), col=ACENTO))
+            caja.add_widget(f)
+        ab = s.get("abiertas") or []
+        t = Tarjeta(); t.add_widget(Texto("Posiciones abiertas", 17, negrita=True))
+        for f in ab:
+            t.add_widget(Texto(f"{f['activo']} {f['estrategia']}: {'compra' if f['lado'] == 'long' else 'venta'} · "
+                               f"{usd(f.get('pnl'), 2, True)}", 14, color(f.get("pnl"))))
+        if not ab:
+            t.add_widget(Texto("Sin posiciones abiertas. El bot entra cuando aparece una señal.", 14, GRIS))
+        caja.add_widget(t)
+        meses, _dd = s.get("mensual") or ([], 0)
+        hist = (d.get("historial") or {}).get("estrategias") or {}
+        base = [b for b in PIL_BASE if b in hist]
+        hoy = datetime.now().strftime("%Y-%m")
+        t = Tarjeta(); t.add_widget(Texto("Resultados por mes (bot · simulación)", 17, negrita=True))
+        for x in list(reversed(meses))[:12]:
+            vals = [(hist[b].get("mensual") or {}).get(x["mes"]) for b in base]
+            sim = sum(vals) / len(vals) if base and x["mes"] < hoy and all(v is not None for v in vals) else None
+            t.add_widget(Texto(f"{x['mes'][5:]}/{x['mes'][:4]}:  bot {pct(x.get('pct'), 1, True)}  ·  simulación "
+                               f"{pct(sim, 1, True)}", 14, color(x.get("pct"))))
+        if not meses:
+            t.add_widget(Texto("Todavía no hay meses.", 14, GRIS))
+        caja.add_widget(t)
+        self.cuerpo.add_widget(sv)
+
+    def _p_posiciones(self, d):
+        sv, caja = pagina()
+        for f in d["snap"]["posiciones"]:
+            t = Tarjeta()
+            t.add_widget(Texto(f"{f['activo']} · {f['estrategia']}", 16, negrita=True))
+            t.add_widget(Texto(f"Monto {usd(f['asignado'])} · capital {usd(f['capital'])}", 14, GRIS))
+            if f["lado"]:
+                t.add_widget(Texto(f"{'Compra' if f['lado'] == 'long' else 'Venta'} a {num(f['entrada'])} · stop "
+                                   f"{num(f['stop'])} · {usd(f.get('pnl'), 2, True)}", 14, color(f.get("pnl"))))
+            else:
+                t.add_widget(Texto("Sin posición abierta", 14, GRIS))
+            caja.add_widget(t)
+        self.cuerpo.add_widget(sv)
+
+    def _p_operaciones(self, d):
+        sv, caja = pagina()
+        r = d["snap"]["resumen_ops"]
+        caja.add_widget(Texto(f"{r['n']} operaciones, {r['ganadas']} ganadoras. Resultado {usd(r['pnl'], 2, True)}.",
+                              14, GRIS))
+        for o in d["snap"].get("ultimas_operaciones") or []:
+            t = Tarjeta()
+            t.add_widget(Texto(f"{o.get('activo')} · {o.get('estrategia')} · {'compra' if o.get('lado') == 'long' else 'venta'}",
+                               15, negrita=True))
+            t.add_widget(Texto(f"{str(o.get('salida_t', ''))[:16]} · {o.get('motivo', '')}", 13, GRIS))
+            t.add_widget(Texto(usd(o.get("pnl"), 2, True), 15, color(o.get("pnl"))))
+            caja.add_widget(t)
+        self.cuerpo.add_widget(sv)
+
+    def _p_avisos(self, d):
+        sv, caja = pagina()
+        caja.add_widget(Boton("Marcar todos como leídos", lambda: self._accion("avisos_leidos")))
+        for a in d.get("alertas") or []:
+            t = Tarjeta()
+            t.add_widget(Texto(a["titulo"], 15, negrita=not a.get("leida")))
+            t.add_widget(Texto(f"{datetime.fromtimestamp(a['hora']):%d/%m %H:%M}", 12, GRIS))
+            t.add_widget(Texto(a.get("texto", ""), 14))
+            caja.add_widget(t)
+        if not d.get("alertas"):
+            caja.add_widget(Texto("No hay avisos.", 14, GRIS))
+        self.cuerpo.add_widget(sv)
+
+    def _fila_switch(self, caja, texto, activo, al_cambiar):
+        fila = BoxLayout(size_hint_y=None, height=dp(48))
+        fila.add_widget(Texto(texto, 15))
+        sw = Switch(active=bool(activo), size_hint_x=None, width=dp(90))
+        sw.bind(active=lambda _s, v: al_cambiar(v))
+        fila.add_widget(sw)
+        caja.add_widget(fila)
+
+    def _p_control(self, d):
+        s, b = d["snap"], d["bot"]
+        sv, caja = pagina()
+        t = Tarjeta(); t.add_widget(Texto("Bot", 17, negrita=True))
+        if b.get("corriendo"):
+            t.add_widget(Boton("Revisar ahora", lambda: self._accion("revisar", "El bot revisa ahora.")))
+            t.add_widget(Boton("Detener bot", lambda: preguntar("Detener bot", "¿Detener el bot? Las posiciones abiertas "
+                                                                "quedan con su stop en Binance.", "Detener",
+                                                                lambda: self._accion("detener")), col=ROJO))
+        else:
+            t.add_widget(Boton("Iniciar bot", lambda: self._accion("iniciar"), col=ACENTO))
+        caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Piloto automático", 17, negrita=True))
+        t.add_widget(Texto("Usa Breakout y Resorte de tendencia en BTC, ETH y SOL y reparte el capital en partes iguales "
+                           "una vez por día.", 13, GRIS))
+        self._fila_switch(t, "Encendido", s.get("auto"), lambda v: preguntar(
+            "Piloto automático", "¿Encender el piloto?" if v else "¿Apagar el piloto?", "Sí",
+            lambda: self._accion("piloto", activo=v), al_cancelar=self._pintar) if bool(v) != bool(s.get("auto")) else None)
+        caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Riesgo", 17, negrita=True))
+        r = d["riesgo"]
+        e1 = TextInput(text=num(r["por_operacion"] * 100, 1), multiline=False, input_filter="float", size_hint_y=None,
+                       height=dp(44), font_size=sp(15))
+        e2 = TextInput(text=str(int(round(r["limite_perdida"] * 100))), multiline=False, input_filter="int",
+                       size_hint_y=None, height=dp(44), font_size=sp(15))
+        t.add_widget(Texto("Riesgo por operación (%)", 13, GRIS)); t.add_widget(e1)
+        t.add_widget(Texto("Límite de pérdida (%)", 13, GRIS)); t.add_widget(e2)
+
+        def guardar_riesgo():
+            try:
+                po, lp = float(e1.text.replace(",", ".")) / 100, float(e2.text) / 100
+            except ValueError:
+                return avisar("Riesgo", "Revisá los números.")
+            self._accion("riesgo", "Riesgo guardado.", por_operacion=po, limite_perdida=lp,
+                         espera_limite=r.get("espera_limite") or 180)
+        t.add_widget(Boton("Guardar riesgo", guardar_riesgo, col=ACENTO))
+        caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Capital del modo", 17, negrita=True))
+        e3 = TextInput(text=num((d.get("capital") or {}).get(d["modo"], 100), 2).replace(".", ""), multiline=False,
+                       input_filter="float", size_hint_y=None, height=dp(44), font_size=sp(15))
+        t.add_widget(e3)
+        t.add_widget(Boton("Guardar capital", lambda: self._accion("capital", "Capital guardado.",
+                                                                    valor=float(e3.text.replace(",", ".") or 0)),
+                           col=ACENTO))
+        caja.add_widget(t)
+        lab = d.get("laboratorio") or {}
+        t = Tarjeta(); t.add_widget(Texto("Laboratorio de estrategias", 17, negrita=True))
+        self._fila_switch(t, "Activo", (lab.get("ajustes") or {}).get("activo"),
+                          lambda v: self._accion("laboratorio", activo=v))
+        for c in lab.get("candidatas") or []:
+            ob = c.get("observacion") or {}
+            t.add_widget(Texto(f"{c.get('nombre', c['id'])}: en observación · ella {pct(ob.get('ella'), 1, True)} · base "
+                               f"{pct(ob.get('base'), 1, True)}", 13))
+        caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Conexión", 17, negrita=True))
+        t.add_widget(Texto(f"Servidor {self.cliente.host}:{self.cliente.puerto}", 13, GRIS))
+        t.add_widget(Boton("Cambiar código de conexión", lambda: self._pantalla_codigo()))
+        caja.add_widget(t)
+        self.cuerpo.add_widget(sv)
+
+
+if __name__ == "__main__":
+    ControlApp().run()

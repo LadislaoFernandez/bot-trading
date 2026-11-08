@@ -43,7 +43,7 @@ cd "$CARPETA"
 venv/bin/pip install -q --upgrade pip
 venv/bin/pip install -q -r requirements_servidor.txt
 [ -f ajustes.json ] || echo '{"modo": "simulado", "auto": {"activo": true}, "laboratorio": {"activo": true}, "instalar_actualizaciones_auto": true}' > ajustes.json
-venv/bin/python servidor.py preparar --puerto "$PUERTO" >/dev/null
+venv/bin/python servidor.py preparar --puerto "$PUERTO" ${IP:+--ip "$IP"} >/dev/null
 
 echo "== 6/7 Puerto $PUERTO abierto en el firewall del servidor"
 if ! sudo iptables -C INPUT -p tcp --dport "$PUERTO" -j ACCEPT 2>/dev/null; then

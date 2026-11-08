@@ -1755,6 +1755,13 @@ class Ventana(QMainWindow):
         return txt
 
     # ---------- configuración
+    def _abrir_control(self):
+        try:
+            pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+            subprocess.Popen([pyw if os.path.exists(pyw) else sys.executable, os.path.abspath("control.py")], cwd=os.getcwd())
+        except OSError as e:
+            aviso(self, t("Control remoto"), t("No se pudo abrir:") + f" {e}", True)
+
     def _seccion(self, iv, titulo, sub=None):
         p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(20, 16, 20, 18); pv.setSpacing(10)
         pv.addWidget(lbl(titulo, rol="titulo"))
@@ -1924,6 +1931,17 @@ class Ventana(QMainWindow):
         self.btn_reanudar = boton(t("Reanudar después del límite de pérdida"), accion=self._reanudar)
         h.addWidget(self.btn_cerrar_todo); h.addWidget(self.btn_reanudar); h.addStretch(); pv.addLayout(h)
         self.lbl_seg = lbl("", rol="muted", size=12, wrap=True); pv.addWidget(self.lbl_seg)
+
+        pv = self._seccion(iv, t("Bot en la nube"), t(
+            "Si el bot corre en un servidor (por ejemplo Oracle Cloud, gratis), esta PC no necesita estar prendida. El "
+            "control remoto se conecta al servidor con el código de conexión y muestra lo mismo que esta app. Importante: "
+            "si el servidor opera tu cuenta de Binance, cerrá esta app (Salir) y desactivá 'Abrir al iniciar Windows', "
+            "para que las órdenes no se dupliquen. La guía para crear el servidor está en el repositorio (SERVIDOR.md)."))
+        h = QHBoxLayout()
+        h.addWidget(boton(t("Abrir el control remoto"), "primario", self._abrir_control))
+        h.addWidget(boton(t("Ver la guía del servidor"), accion=lambda: QDesktopServices.openUrl(
+            QUrl(f"https://github.com/{K.REPO}/blob/main/SERVIDOR.md"))))
+        h.addStretch(); pv.addLayout(h)
 
         # acerca de
         pv = self._seccion(iv, t("Actualizaciones"), t(
@@ -2775,8 +2793,30 @@ def _limpiar_obsoletos():
             pass
 
 
+def _acceso_control():
+    """Acceso directo 'Bot de trading - Control remoto' en el menú Inicio (las actualizaciones no pasan por el
+    instalador, así que lo crea la app una sola vez)."""
+    if os.name != "nt" or PRUEBA:
+        return
+    try:
+        menu = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs")
+        lnk = os.path.join(menu, "Bot de trading - Control remoto.lnk")
+        if os.path.exists(lnk) or not os.path.exists("control.py"):
+            return
+        pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK); $s.TargetPath=$env:PYW; "
+              "$s.Arguments='\"' + $env:CTRL + '\"'; $s.WorkingDirectory=$env:DIR; $s.IconLocation=$env:ICO; $s.Save()")
+        env = dict(os.environ, LNK=lnk, PYW=pyw, CTRL=os.path.abspath("control.py"), DIR=os.getcwd(),
+                   ICO=os.path.abspath("app_icon.ico"))
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], env=env, timeout=30,
+                       creationflags=0x08000000, capture_output=True)
+    except Exception:
+        pass
+
+
 def main():
     _limpiar_obsoletos()
+    threading.Thread(target=_acceso_control, daemon=True).start()
     import catalogo
     if catalogo.RETIRADAS_AHORA:
         PT.log(t("Estrategias del laboratorio anterior pasadas a respaldos/estrategias_viejas: {e}. El laboratorio nuevo "

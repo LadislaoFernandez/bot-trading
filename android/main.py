@@ -145,6 +145,18 @@ class ControlApp(App):
                             background_color=PANEL, foreground_color=TEXTO)
         caja.add_widget(entrada)
 
+        def pegar():  # en Android, mantener apretado el campo no siempre muestra "Pegar"
+            try:
+                from kivy.core.clipboard import Clipboard
+                txt = Clipboard.paste() or ""
+            except Exception:
+                txt = ""
+            if not txt.strip():
+                return avisar("Pegar", "No hay nada copiado. Copiá el código completo (empieza con BOT1-) y volvé a "
+                                       "tocar Pegar.")
+            entrada.text = txt.strip()
+        caja.add_widget(Boton("Pegar el código copiado", pegar))
+
         def conectar():
             cod = "".join(entrada.text.split())
             try:

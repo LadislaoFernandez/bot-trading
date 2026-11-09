@@ -61,6 +61,12 @@ jobs:
       - name: Compilar el APK
         working-directory: android
         run: yes | buildozer android debug
+      - name: Revisar que el APK trae el servicio de avisos
+        run: |
+          m=$(find android/.buildozer -path "*dists*" -name AndroidManifest.xml | head -1)
+          echo "$m"
+          grep -q "ServiceAvisos" "$m" && grep -q "FOREGROUND_SERVICE" "$m" && grep -q "POST_NOTIFICATIONS" "$m"
+          grep -o 'targetSdkVersion="[0-9]*"' "$m" || true
       - name: Nombre final
         run: |
           mkdir -p dist

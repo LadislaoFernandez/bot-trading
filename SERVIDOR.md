@@ -70,6 +70,12 @@ servidor se reinicia. Se actualiza solo desde GitHub, igual que la app.
 
 Las apps solo muestran y controlan: el bot corre en el servidor, así que podés cerrarlas cuando quieras.
 
+La app de Android además **te avisa con una notificación cada vez que el bot abre o cierra una operación**, aunque esté
+cerrada. La primera vez Android pide permiso para mostrar notificaciones: aceptalo. Mientras los avisos están encendidos
+queda una notificación fija "Avisos de operaciones" (Android la exige para no cortar el servicio). Se apagan en
+*Control → Notificaciones*. Si reiniciás el celular, abrí la app una vez para que vuelvan a funcionar. Si alguna marca
+de celular corta los avisos, en *Ajustes → Batería* poné la app como "Sin restricciones".
+
 ## 6. Cargar las claves de Binance (en el servidor)
 
 Las claves se cargan **en el servidor** y nunca viajan por internet ni pasan por las apps. Conectado por `ssh`:

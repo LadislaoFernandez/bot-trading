@@ -104,6 +104,34 @@ def crear_certificado(ip):
     return hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
 
 
+def eventos_operaciones(carpeta=".", maximo=40):
+    """Aperturas y cierres de operaciones del modo actual, del más reciente al más viejo (para las notificaciones del
+    celular). Cada evento tiene un id estable: la apertura de una posición tiene el mismo id mientras está abierta y
+    después de cerrarse, así la app avisa una sola vez de cada cosa."""
+    import app_data as A
+    ev = []
+    for o in A.operaciones(carpeta)[:maximo]:
+        base = dict(activo=o["activo"], estrategia=o["estrategia"], lado=o["lado"])
+        ev.append(dict(base, id=f"c|{o['activo']}|{o['clave']}|{o['entrada_t']}|{o['salida_t']}", tipo="cierra",
+                       hora=o["salida_t"], precio=o["salida"], pnl=o["pnl"], motivo=o["motivo"]))
+        ev.append(dict(base, id=f"a|{o['activo']}|{o['clave']}|{o['entrada_t']}", tipo="abre", hora=o["entrada_t"],
+                       precio=o["entrada"]))
+    st = A.leer_estado(carpeta) or {}
+    for k, ss in (st.get("sleeves") or {}).items():
+        p = ss.get("pos")
+        if not p or not p.get("t"):
+            continue
+        a, s = k.split("_", 1)
+        hora = PT.fmt_t(p["t"])
+        ev.append(dict(id=f"a|{a}|{s}|{hora}", tipo="abre", hora=hora, activo=a, estrategia=PT.nombre(s),
+                       lado=p["side"], precio=p["e"], stop=p.get("stop"), tamano=p["q"] * p["e"]))
+    unicos = {}
+    for e in ev:  # la apertura de una posición abierta trae stop y tamaño: esa versión gana
+        if e["id"] not in unicos or "stop" in e:
+            unicos[e["id"]] = e
+    return sorted(unicos.values(), key=lambda e: (e["hora"], e["tipo"] == "cierra"), reverse=True)[:maximo]
+
+
 def codigo_conexion(c):
     datos = {"h": c["ip"], "p": c["puerto"], "t": c["token"], "f": c["huella"]}
     return PREFIJO_CODIGO + base64.urlsafe_b64encode(json.dumps(datos, separators=(",", ":")).encode()).decode().rstrip("=")
@@ -220,6 +248,8 @@ class Servicio:
             return {"decisiones": A.decisiones(".")}
         if que == "registro":
             return {"lineas": A.leer_log(".", 400)}
+        if que == "eventos":
+            return {"eventos": eventos_operaciones("."), "modo": K.MODO, "nombre_modo": t(K.NOMBRE_MODO[K.MODO])}
         raise KeyError(que)
 
     # ---------- lo que pueden hacer las apps

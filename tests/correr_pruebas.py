@@ -143,6 +143,11 @@ def prueba_binance(semilla, auto=False):
         if auto:
             PT.guardar_auto(activo=True)
         st = PT.load_state()
+        sys.path.insert(0, os.path.join(RAIZ, "android"))
+        import avisos as AV
+        import servidor as SV
+        vistos, avisados = os.path.join(d, "vistos.json"), []
+        AV.nuevos(SV.eventos_operaciones("."), vistos)  # primera vez: no avisa nada
         for k in range(3000, 3600):
             fake.procesar_vela("BTC/USDT:USDT", ROWS[k - 1]); fake.procesar_vela("SOL/USDT:USDT", rows2[k - 1])
             clock["t"] = ROWS[k][0] + 20000
@@ -158,11 +163,23 @@ def prueba_binance(semilla, auto=False):
                     assert o and o["status"] == "open", (k, kk, "sin stop")
             abiertos = [o for o in fake.orders.values() if o.get("stopord") and o["status"] == "open"]
             assert len(abiertos) == sum(1 for v in st["sleeves"].values() if v["pos"]), (k, "stops huérfanos")
+            avisados += AV.nuevos(SV.eventos_operaciones("."), vistos)
         n = L.cerrar_todo(br, st)
         assert not {k: v for k, v in fake.pos.items() if v > 1e-9}
+        avisados += AV.nuevos(SV.eventos_operaciones("."), vistos)
+        # notificaciones del celular: un aviso por cada apertura y por cada cierre, sin repetir
+        import app_data as A
+        ops = A.operaciones(".")
+        ids = [e["id"] for e in avisados]
+        assert len(ids) == len(set(ids)), "aviso repetido"
+        assert sum(e["tipo"] == "cierra" for e in avisados) == len(ops), (len(avisados), len(ops))
+        assert {e["id"] for e in avisados if e["tipo"] == "abre"} == {f"a|{o['activo']}|{o['clave']}|{o['entrada_t']}" for o in ops}
+        assert all(AV.texto(e, "Demo")[0] for e in avisados)
+        assert not AV.nuevos(SV.eventos_operaciones("."), vistos)
         txt = "\n".join(logs)
         print(f"3) Binance falso (semilla {semilla}{', modo automático' if auto else ''}): {txt.count('abrió')} aperturas, "
-              f"{txt.count('Binance ejecutó el stop')} stops ejecutados, cerrar todo cerró {n}; todo coincide")
+              f"{txt.count('Binance ejecutó el stop')} stops ejecutados, cerrar todo cerró {n}; todo coincide; "
+              f"{len(avisados)} avisos al celular, uno por apertura y por cierre")
     finally:
         time.time, time.sleep = t_real, s_real
 

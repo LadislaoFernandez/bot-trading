@@ -23,9 +23,11 @@ from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.switch import Switch
 from kivy.uix.textinput import TextInput
-from kivy.utils import get_color_from_hex as hexc
+from kivy.utils import get_color_from_hex as hexc, platform
 
 import cliente_api as C
+
+SERVICIO = "io.github.ladislaofernandez.botcontrol.ServiceAvisos"  # package.domain + package.name + Service<Nombre>
 
 FONDO, PANEL, TEXTO, GRIS = hexc("#0f1115"), hexc("#181b22"), hexc("#e8eaf0"), hexc("#8b90a0")
 VERDE, ROJO, AMBAR, ACENTO = hexc("#2fbf71"), hexc("#e5484d"), hexc("#f5a524"), hexc("#f08a24")
@@ -160,7 +162,56 @@ class ControlApp(App):
         except ValueError as e:
             return self._pantalla_codigo(str(e))
         self._armar()
-        threading.Thread(target=self._sondeo, daemon=True).start()
+        if not getattr(self, "_sondeando", False):
+            self._sondeando = True
+            threading.Thread(target=self._sondeo, daemon=True).start()
+        if self._avisos_activos():
+            self._arrancar_avisos()
+
+    # ---------- notificaciones de operaciones (servicio aparte que sigue aunque cierres la app)
+    def _avisos_activos(self):
+        try:
+            with open(os.path.join(self.user_data_dir, "avisos_ajustes.json"), encoding="utf-8") as f:
+                return bool(json.load(f).get("activo", True))
+        except (OSError, ValueError):
+            return True
+
+    def _guardar_avisos(self, activo):
+        with open(os.path.join(self.user_data_dir, "avisos_ajustes.json"), "w", encoding="utf-8") as f:
+            json.dump({"activo": bool(activo)}, f)
+
+    def _arrancar_avisos(self):
+        if platform != "android":
+            return
+        try:
+            from android.permissions import Permission, request_permissions
+            if hasattr(Permission, "POST_NOTIFICATIONS"):
+                request_permissions([Permission.POST_NOTIFICATIONS])  # Android 13 o más: pide permiso una vez
+        except Exception:
+            pass
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            autoclass(SERVICIO).start(act, "", "Bot de trading", "Avisos de operaciones encendidos",
+                                      json.dumps({"carpeta": self.user_data_dir}))
+        except Exception as e:
+            self.error_avisos = f"{type(e).__name__}: {e}"
+
+    def _parar_avisos(self):
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            autoclass(SERVICIO).stop(autoclass("org.kivy.android.PythonActivity").mActivity)
+        except Exception:
+            pass
+
+    def _cambiar_avisos(self, activo):
+        self._guardar_avisos(activo)
+        if activo:
+            self._arrancar_avisos()
+        else:
+            self._parar_avisos()
 
     # ---------- estructura: contenido + barra de pestañas abajo
     def _armar(self):
@@ -387,6 +438,14 @@ class ControlApp(App):
             ob = c.get("observacion") or {}
             t.add_widget(Texto(f"{c.get('nombre', c['id'])}: en observación · ella {pct(ob.get('ella'), 1, True)} · base "
                                f"{pct(ob.get('base'), 1, True)}", 13))
+        caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Notificaciones", 17, negrita=True))
+        t.add_widget(Texto("Te avisa en el celular cada vez que el bot abre o cierra una operación, aunque la app esté "
+                           "cerrada. Android muestra una notificación fija \"Avisos\" mientras está encendido. Si "
+                           "reiniciás el celular, abrí la app una vez para que vuelva a avisar.", 13, GRIS))
+        self._fila_switch(t, "Avisar operaciones", self._avisos_activos(), self._cambiar_avisos)
+        if getattr(self, "error_avisos", None):
+            t.add_widget(Texto("No se pudieron encender: " + self.error_avisos[:160], 13, ROJO))
         caja.add_widget(t)
         t = Tarjeta(); t.add_widget(Texto("Conexión", 17, negrita=True))
         t.add_widget(Texto(f"Servidor {self.cliente.host}:{self.cliente.puerto}", 13, GRIS))

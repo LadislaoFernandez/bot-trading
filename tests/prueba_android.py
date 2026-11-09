@@ -51,7 +51,17 @@ try:
     app.run()
     assert app.datos and not app.error, app.error
     assert not errores, errores
-    print("10) app de Android: conecta con el servidor y recorre las 5 pestañas sin errores")
+    # servicio de avisos: una vuelta contra el servidor real (la parte de Android solo muestra la notificación)
+    import avisos as AV
+    import cliente_api as C
+    vistos, avisados = os.path.join(tmp, "vistos.json"), []
+    cli = C.Cliente(codigo)
+    assert "eventos" in cli.detalle("eventos")
+    AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
+    AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
+    assert os.path.exists(vistos) and not avisados  # sin operaciones nuevas, no avisa nada
+    print("10) app de Android: conecta con el servidor, recorre las 5 pestañas sin errores y el servicio de avisos "
+          "lee los eventos del servidor")
 finally:
     srv.terminate()
     srv.wait(10)

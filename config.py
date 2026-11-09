@@ -38,9 +38,14 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.11"
+VERSION = "1.12"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.12", "09/11/2026", [
+        "App de Android: notificación en el celular cada vez que el bot abre o cierra una operación, aunque la app esté "
+        "cerrada (se enciende y apaga en Control → Notificaciones).",
+        "Servidor: nueva consulta de eventos (aperturas y cierres) para los avisos del celular.",
+    ]),
     ("1.11", "08/11/2026", [
         "Bot en la nube: el bot puede correr en un servidor gratis de Oracle Cloud las 24 horas, sin depender de la PC. "
         "Guía paso a paso en SERVIDOR.md e instalación con un solo comando.",

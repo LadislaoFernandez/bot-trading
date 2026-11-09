@@ -104,6 +104,34 @@ def crear_certificado(ip):
     return hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
 
 
+def capital_minimo(snap, minimos, analisis, piloto_base):
+    """Capital mínimo recomendado para que todas las partes lleguen al mínimo de orden de Binance (misma cuenta que el
+    control de Windows), o None si todavía no hay datos del mercado. Lo usa la app de Android, que no tiene el motor."""
+    try:
+        return _capital_minimo(snap, minimos, analisis, piloto_base)
+    except Exception:
+        return None
+
+
+def _capital_minimo(snap, minimos, analisis, piloto_base):
+    from engine import STRATS
+    au = snap.get("auto_estado") or {}
+    estr = (au.get("dentro") if au.get("dentro") is not None else piloto_base) if snap.get("auto") else snap.get("activas")
+    partes = [(x, a) for x in (estr or []) for a in K.SYMBOLS]
+    if not partes or K.MODO == "simulado":
+        return None
+    mins = {}
+    for x, a in partes:
+        mn, an = (minimos or {}).get(a), (analisis or {}).get(a)
+        if not mn or not an or not an.get("atr_pct") or x not in STRATS:
+            return None
+        mins[(x, a)] = mn * STRATS[x]["stop_atr"] * an["atr_pct"] / K.RISK_PER_TRADE
+    (x, a), m = max(mins.items(), key=lambda i: i[1])
+    por_parte = m * 1.25
+    return dict(total=por_parte * len(partes), por_parte=por_parte, partes=len(partes), estrategia=x, activo=a,
+                disponible=snap.get("saldo_cerrado"))
+
+
 def eventos_operaciones(carpeta=".", maximo=40):
     """Aperturas y cierres de operaciones del modo actual, del más reciente al más viejo (para las notificaciones del
     celular). Cada evento tiene un id estable: la apertura de una posición tiene el mismo id mientras está abierta y
@@ -232,8 +260,10 @@ class Servicio:
                 riesgo=dict(por_operacion=K.RISK_PER_TRADE, limite_perdida=K.LIMITE_PERDIDA,
                             espera_limite=getattr(K, "ESPERA_ORDEN_LIMITE", None)),
                 capital=aj.get("capital", {}),
+                capital_minimo=capital_minimo(snap, self.mkt.minimos, self.mkt.analisis, AU.base()),
                 claves={m: __import__("claves").hay(m) for m in ("demo", "real")},
                 actualizacion=self.actualizacion,
+                actualizaciones_auto=bool(aj.get("instalar_actualizaciones_auto", True)),
             )
             self.cache, self.cache_t = out, time.time()
             return out

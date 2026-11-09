@@ -724,6 +724,8 @@ class Control(QMainWindow):
                 h.addWidget(boton(t("Dejar de observarla"), accion=lambda _=False, i=c["id"]: self._accion("descartar_candidata", id=i)))
                 self.box_cand.addWidget(fila)
         a = d.get("actualizacion") or {}
+        self.sw_act.blockSignals(True); self.sw_act.setChecked(bool(d.get("actualizaciones_auto", True)))
+        self.sw_act.blockSignals(False)
         self.lbl_act.setText({"al día": t("Al día (versión {v}).", v=d["version"]),
                               "disponible": t("Hay una versión nueva: {v}.", v=a.get("version")),
                               "instalada": t("Versión {v} instalada; el servidor se está reiniciando.", v=a.get("version")),

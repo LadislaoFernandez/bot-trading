@@ -871,6 +871,7 @@ EN = {
     '{n} operaciones, {g} ganadoras ({p}). Resultado: {r}.': '{n} trades, {g} winners ({p}). Result: {r}.',
     'Conectado a {h}:{p}. Servidor versión {v}, modo {m}. Claves cargadas: demo {cd}, real {cr}.': 'Connected to {h}:{p}. Server version {v}, mode {m}. Keys loaded: demo {cd}, real {cr}.',
     'App {v}': 'App {v}',
+    'Actualizando a {v}…': 'Updating to {v}…',
     'El bot contra la simulación de Breakout y Resorte de tendencia en el mismo mes.': 'The bot against the simulation of Breakout and Trend spring in the same month.',
     'Monto': 'Amount',
     'Capital': 'Capital',

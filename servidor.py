@@ -249,7 +249,8 @@ class Servicio:
         if que == "registro":
             return {"lineas": A.leer_log(".", 400)}
         if que == "eventos":
-            return {"eventos": eventos_operaciones("."), "modo": K.MODO, "nombre_modo": t(K.NOMBRE_MODO[K.MODO])}
+            return {"eventos": eventos_operaciones("."), "modo": K.MODO, "nombre_modo": t(K.NOMBRE_MODO[K.MODO]),
+                    "version": K.VERSION}
         raise KeyError(que)
 
     # ---------- lo que pueden hacer las apps

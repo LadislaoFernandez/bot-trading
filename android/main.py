@@ -206,6 +206,41 @@ class ControlApp(App):
         except Exception:
             pass
 
+    # ---------- versión nueva de la app (cada versión del servidor trae su APK)
+    def _version_app(self):
+        if platform != "android":
+            return None
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            return act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionName
+        except Exception:
+            return None
+
+    def _bajar_version(self):
+        import avisos as AV
+        if platform != "android":
+            import webbrowser
+            return webbrowser.open(AV.URL_APK)
+        from jnius import autoclass
+        Intent, Uri = autoclass("android.content.Intent"), autoclass("android.net.Uri")
+        autoclass("org.kivy.android.PythonActivity").mActivity.startActivity(Intent(Intent.ACTION_VIEW,
+                                                                                    Uri.parse(AV.URL_APK)))
+
+    def _tarjeta_version(self, d, caja):
+        import avisos as AV
+        if not hasattr(self, "version_app"):
+            self.version_app = self._version_app()
+        if not AV.version_nueva(d.get("version"), self.version_app):
+            return
+        t = Tarjeta()
+        t.add_widget(Texto(f"Hay una versión nueva de la app: {d.get('version')} (tenés la {self.version_app}).", 15,
+                           AMBAR, negrita=True))
+        t.add_widget(Texto("Tocá el botón, esperá que baje, abrí el archivo y tocá Actualizar. Android siempre pide "
+                           "confirmar la instalación. Tus datos y el código de conexión se conservan.", 13, GRIS))
+        t.add_widget(Boton("Bajar la versión nueva", self._bajar_version, col=ACENTO))
+        caja.add_widget(t)
+
     def _cambiar_avisos(self, activo):
         self._guardar_avisos(activo)
         if activo:
@@ -294,6 +329,7 @@ class ControlApp(App):
     def _p_resumen(self, d):
         s = d["snap"]
         sv, caja = pagina()
+        self._tarjeta_version(d, caja)
         t = Tarjeta()
         t.add_widget(Texto("Saldo del bot", 13, GRIS))
         t.add_widget(Texto(usd(s["saldo"]), 30, negrita=True))

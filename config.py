@@ -38,9 +38,16 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.12"
+VERSION = "1.13"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.13", "09/11/2026", [
+        "Control remoto de Windows: se actualiza solo (busca versiones nuevas al abrirse y cada hora, las instala y se "
+        "reinicia).",
+        "App de Android: avisa cuando hay una versión nueva (en Resumen y con una notificación) y la baja con un toque.",
+        "Windows: el instalador ya no instala la app de escritorio vieja (sin acceso directo ni inicio automático) y el "
+        "control remoto borra lo que quedaba de ella: inicio automático, accesos directos, datos locales y lanzadores.",
+    ]),
     ("1.12", "09/11/2026", [
         "App de Android: notificación en el celular cada vez que el bot abre o cierra una operación, aunque la app esté "
         "cerrada (se enciende y apaga en Control → Notificaciones).",

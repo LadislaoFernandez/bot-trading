@@ -34,31 +34,34 @@ Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
-es.AutoInicio=Abrir el bot automáticamente al iniciar Windows
-en.AutoInicio=Open the bot automatically when Windows starts
 es.Opciones=Opciones:
 en.Opciones=Options:
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:Opciones}"
-Name: "autostart"; Description: "{cm:AutoInicio}"; GroupDescription: "{cm:Opciones}"
 
 [Files]
 Source: "..\build\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "..\build\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+; El bot corre en el servidor: en Windows se instala solo el control remoto. El código de la app de escritorio vieja
+; viene igual porque el control usa sus componentes, pero ya no tiene acceso directo ni inicio automático.
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"
 Name: "{autoprograms}\{#AppName} - Control remoto"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\control.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName} - Control remoto"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\control.py"""; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BotTradingV2"; ValueData: "wscript.exe ""{app}\iniciar_oculto.vbs"""; Tasks: autostart; Flags: uninsdeletevalue
+; borra el inicio automático de la app de escritorio vieja
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "BotTradingV2"; Flags: deletevalue
 
 [Run]
-Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\app.py"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\control.py"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#AppName} - Control remoto}"; Flags: nowait postinstall skipifsilent
 
 [InstallDelete]
+Type: files; Name: "{autoprograms}\{#AppName}.lnk"
+Type: files; Name: "{autodesktop}\{#AppName}.lnk"
+Type: files; Name: "{app}\iniciar_oculto.vbs"
+Type: files; Name: "{app}\iniciar_bot.bat"
 Type: files; Name: "{app}\ver_estado.bat"
 Type: files; Name: "{app}\verificar_backtest.bat"
 Type: files; Name: "{app}\actualizar_app.bat"
@@ -72,8 +75,8 @@ procedure CerrarBot();
 var
   R: Integer;
 begin
-  { cierra la app del bot instalada en esta carpeta, si está abierta (no toca otras copias del bot) }
-  Exec('powershell.exe', '-NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name=''pythonw.exe''\" | Where-Object { $_.CommandLine -like ''*' + ExpandConstant('{app}') + '\app.py*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
+  { cierra la app vieja y el control remoto de esta carpeta, si están abiertos (no toca otras copias del bot) }
+  Exec('powershell.exe', '-NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name=''pythonw.exe''\" | Where-Object { $_.CommandLine -like ''*' + ExpandConstant('{app}') + '\*.py*'' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
        '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 

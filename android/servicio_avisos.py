@@ -22,6 +22,8 @@ NotificationManager = autoclass("android.app.NotificationManager")
 Builder = autoclass("android.app.Notification$Builder")
 BigText = autoclass("android.app.Notification$BigTextStyle")
 PendingIntent = autoclass("android.app.PendingIntent")
+Intent = autoclass("android.content.Intent")
+Uri = autoclass("android.net.Uri")
 JString = autoclass("java.lang.String")
 
 CANAL = "operaciones"
@@ -43,20 +45,38 @@ if Build.SDK_INT >= 26:
     nm.createNotificationChannel(ch)
 
 
-def _abrir_app():
-    intent = svc.getPackageManager().getLaunchIntentForPackage(svc.getPackageName())
+def _pendiente(intent, codigo=0):
     flags = 0x04000000 if Build.SDK_INT >= 23 else 0  # FLAG_IMMUTABLE
-    return PendingIntent.getActivity(svc, 0, intent, flags | 0x08000000)  # | FLAG_UPDATE_CURRENT
+    return PendingIntent.getActivity(svc, codigo, intent, flags | 0x08000000)  # | FLAG_UPDATE_CURRENT
 
 
-def notificar(id_, titulo, cuerpo):
+def _abrir_app():
+    return _pendiente(svc.getPackageManager().getLaunchIntentForPackage(svc.getPackageName()))
+
+
+def version_app():
+    try:
+        return svc.getPackageManager().getPackageInfo(svc.getPackageName(), 0).versionName
+    except Exception:
+        return None
+
+
+def notificar_version(v):
+    """Aviso de app nueva: al tocarlo baja el APK de la última versión (Android pide confirmar la instalación)."""
+    i = Intent(Intent.ACTION_VIEW, Uri.parse(AV.URL_APK))
+    notificar(f"version|{v}", f"Hay una versión nueva de la app ({v})",
+              "Tocá acá para bajarla. Cuando termine la descarga, abrila y tocá Actualizar. Tus datos y el código de "
+              "conexión se conservan.", intent=_pendiente(i, 1))
+
+
+def notificar(id_, titulo, cuerpo, intent=None):
     b = Builder(svc, CANAL) if Build.SDK_INT >= 26 else Builder(svc)
     b.setSmallIcon(svc.getApplicationInfo().icon)
     b.setContentTitle(JString(titulo))
     b.setContentText(JString(cuerpo))
     b.setStyle(BigText().bigText(JString(cuerpo)))
     b.setAutoCancel(True)
-    b.setContentIntent(_abrir_app())
+    b.setContentIntent(intent or _abrir_app())
     if Build.SDK_INT < 26:
         b.setPriority(1)  # PRIORITY_HIGH
     nm.notify(zlib.crc32(id_.encode("utf-8")) & 0x7FFFFFFF, b.build())
@@ -87,7 +107,7 @@ def main():
             if cod and cod != codigo:
                 cliente, codigo = C.Cliente(cod), cod
             if cliente:
-                AV.ciclo(cliente, ARCH_VISTOS, notificar)
+                AV.ciclo(cliente, ARCH_VISTOS, notificar, version_app(), notificar_version)
         except (C.ErrorConexion, C.ErrorServidor) as e:
             _anotar_error(str(e))  # sin internet o servidor caído: se reintenta en la próxima vuelta
         except Exception:

@@ -7,6 +7,7 @@ piloto, cambiar el riesgo y el capital, manejar el laboratorio y actualizar el s
   pythonw control.py
 """
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -71,6 +72,61 @@ def pedir_codigo(parent, actual=""):
         return "".join(txt.split())
 
 
+# ------------------------------------------------------------------ limpieza de la app de escritorio anterior
+# El bot ahora corre en el servidor: de la app vieja quedan su inicio automático, sus accesos directos, sus datos locales
+# y sus lanzadores. El código queda porque este control remoto usa sus componentes (y está respaldado en el repositorio).
+DATOS_APP_VIEJA = ["alertas.json", "bot.log", "bot_demo.log", "bot_real.log", "capital_demo.csv", "capital_horario.csv",
+                   "capital_real.csv", "claves_demo.dat", "claves_real.dat", "ed25519_demo.dat", "ed25519_real.dat",
+                   "decisiones.jsonl", "decisiones_demo.jsonl", "decisiones_real.jsonl", "estado_bot.json",
+                   "estado_demo.json", "estado_real.json", "historial_estrategias.json", "laboratorio.log",
+                   "laboratorio_estado.json", "operaciones.csv", "operaciones_demo.csv", "operaciones_real.csv",
+                   "app_error.log", "iniciar_bot.bat", "iniciar_oculto.vbs", "_buscar_python.bat",
+                   "instalar_servidor.sh"]
+CARPETAS_APP_VIEJA = ["candidatas", "datos_lab", "mis_estrategias"]
+
+
+def limpiar_app_vieja():
+    """Saca de Windows lo que queda de la app de escritorio (solo si no está abierta). Devuelve lo que borró."""
+    import shutil
+    if os.name != "nt" or app_local_abierta():
+        return []
+    hecho = []
+    try:
+        import winreg
+        clave = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, clave, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
+            try:
+                winreg.QueryValueEx(k, "BotTradingV2")
+                winreg.DeleteValue(k, "BotTradingV2"); hecho.append("inicio automático")
+            except FileNotFoundError:
+                pass
+    except OSError:
+        pass
+    perfil = os.environ.get("USERPROFILE", "")
+    accesos = [os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs",
+                            "Bot de trading.lnk")]
+    for esc in ("Desktop", "Escritorio", os.path.join("OneDrive", "Desktop"), os.path.join("OneDrive", "Escritorio")):
+        accesos.append(os.path.join(perfil, esc, "Bot de trading.lnk"))
+    for x in accesos + DATOS_APP_VIEJA:
+        try:
+            if os.path.isfile(x):
+                os.remove(x); hecho.append(os.path.basename(x))
+        except OSError:
+            pass
+    ajustes = U._ajustes_iniciales()
+    if set(ajustes) - {"idioma"}:  # de los ajustes de la app vieja, este control solo usa el idioma
+        try:
+            with open("ajustes.json", "w", encoding="utf-8") as f:
+                f.write('{"idioma": "%s"}' % ajustes.get("idioma", "es"))
+            hecho.append("ajustes.json")
+        except OSError:
+            pass
+    for c in CARPETAS_APP_VIEJA:
+        if os.path.isdir(c):
+            shutil.rmtree(c, ignore_errors=True); hecho.append(c)
+    return hecho
+
+
 def app_local_abierta():
     s = QLocalSocket(); s.connectToServer("BotTradingV2App")
     ok = s.waitForConnected(200)
@@ -100,7 +156,34 @@ class Control(QMainWindow):
         self.nav[0].setChecked(True)
         self.parar = threading.Event()
         threading.Thread(target=self._sondeo, daemon=True).start()
+        self.reiniciar_pendiente = False
+        if os.environ.get("QT_QPA_PLATFORM") != "offscreen" and not os.environ.get("BOT_SIN_ACTUALIZAR"):
+            threading.Thread(target=self._auto_actualizar, daemon=True).start()
         self.t = QTimer(self); self.t.timeout.connect(self._pintar); self.t.start(700)
+
+    # ---------- actualización automática de esta app (la del servidor la hace el servidor)
+    def _auto_actualizar(self):
+        import actualizador as AC
+        self.parar.wait(20)  # deja arrancar la ventana primero
+        while not self.parar.is_set():
+            try:
+                info = AC.buscar()
+                if info:
+                    self.lbl_app.setText(t("Actualizando a {v}…", v=info["version"]))
+                    AC.instalar(info, carpeta=os.getcwd())
+                    self.reiniciar_pendiente = True
+                    return
+            except Exception as e:  # sin internet o GitHub caído: reintenta en una hora
+                print("actualización:", type(e).__name__, e)
+            self.parar.wait(3600)
+
+    def _reiniciar(self):
+        exe = sys.executable
+        if exe.lower().endswith("python.exe") and os.path.exists(exe[:-10] + "pythonw.exe"):
+            exe = exe[:-10] + "pythonw.exe"
+        subprocess.Popen([exe, os.path.abspath(__file__)], cwd=os.getcwd())
+        self.parar.set()
+        QApplication.quit()
 
     # ---------- datos (en segundo plano)
     def _sondeo(self):
@@ -152,7 +235,7 @@ class Control(QMainWindow):
         tv = QVBoxLayout(); tv.setSpacing(1)
         tv.addWidget(lbl(t("Bot de trading"), size=16, weight=600, family=FONT))
         self.lbl_modo = lbl(t("Control remoto"), size=12, wrap=True); tv.addWidget(self.lbl_modo)
-        tv.addWidget(lbl(t("App {v}", v=K.VERSION), rol="muted", size=11))
+        self.lbl_app = lbl(t("App {v}", v=K.VERSION), rol="muted", size=11); tv.addWidget(self.lbl_app)
         head.addLayout(tv, 1); v.addLayout(head); v.addSpacing(22)
         self.nav, grupo = [], QButtonGroup(self)
         for i, n in enumerate([t("Resumen"), t("Posiciones"), t("Operaciones"), t("Estrategias"), t("Avisos"),
@@ -381,6 +464,9 @@ class Control(QMainWindow):
 
     # ---------- pintar
     def _pintar(self):
+        if self.reiniciar_pendiente:
+            self.reiniciar_pendiente = False
+            return self._reiniciar()
         if self.pintado == self.version_datos:
             return
         self.pintado = self.version_datos
@@ -653,6 +739,11 @@ def main():
     except Exception:
         app.setStyleSheet(QSS)
     f = QFont(FONT_TXT); f.setPixelSize(13); app.setFont(f)
+    if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+        try:
+            limpiar_app_vieja()
+        except Exception as e:
+            print("limpieza:", type(e).__name__, e)
     codigo = leer_codigo() or pedir_codigo(None)
     if not codigo:
         return

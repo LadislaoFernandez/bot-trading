@@ -145,7 +145,8 @@ def prueba_binance(semilla, auto=False):
         st = PT.load_state()
         sys.path.insert(0, os.path.join(RAIZ, "android"))
         import avisos as AV
-        import servidor as SV
+        import servidor as SV  # al importarse se para en la carpeta del código: volver a la de la prueba
+        os.chdir(d)
         vistos, avisados = os.path.join(d, "vistos.json"), []
         AV.nuevos(SV.eventos_operaciones("."), vistos)  # primera vez: no avisa nada
         for k in range(3000, 3600):
@@ -175,6 +176,10 @@ def prueba_binance(semilla, auto=False):
         assert sum(e["tipo"] == "cierra" for e in avisados) == len(ops), (len(avisados), len(ops))
         assert {e["id"] for e in avisados if e["tipo"] == "abre"} == {f"a|{o['activo']}|{o['clave']}|{o['entrada_t']}" for o in ops}
         assert all(AV.texto(e, "Demo")[0] for e in avisados)
+        assert not AV.nuevos(SV.eventos_operaciones("."), vistos)
+        # aviso de app nueva: una sola vez por versión, y sin borrar los avisos ya vistos
+        assert AV.version_nueva("1.13", "1.12") and not AV.version_nueva("1.12", "1.12") and not AV.version_nueva("1.12", None)
+        assert AV.avisar_version("1.13", "1.12", vistos) == "1.13" and AV.avisar_version("1.13", "1.12", vistos) is None
         assert not AV.nuevos(SV.eventos_operaciones("."), vistos)
         txt = "\n".join(logs)
         print(f"3) Binance falso (semilla {semilla}{', modo automático' if auto else ''}): {txt.count('abrió')} aperturas, "

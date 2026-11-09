@@ -103,9 +103,19 @@ habilitados o no está restringida a su IP, y pide escribir REAL para confirmar.
 
 ## 7. Apagar el bot de la PC
 
-Con el servidor operando tu cuenta, **cerrá la app de la PC** (ícono junto a la hora → *Salir*) y desactivá
-*Configuración → Abrir al iniciar Windows*. Si los dos operan la misma cuenta de Binance, las órdenes se duplican. La
-app de control avisa si la detecta abierta.
+Con el servidor operando tu cuenta, la app de escritorio vieja ya no hace falta: si los dos operan la misma cuenta de
+Binance, las órdenes se duplican. Desde la versión 1.13, al abrir el control remoto de Windows se borra solo lo que
+quedaba de ella (inicio automático, accesos directos, datos y lanzadores). Si la tenés abierta, cerrala antes (ícono
+junto a la hora → *Salir*).
+
+## Actualizaciones
+
+- **Servidor**: busca versiones nuevas cada hora y se actualiza solo.
+- **Control remoto de Windows**: busca al abrirse y después cada hora; si hay una versión nueva la instala y se
+  reinicia solo.
+- **Android**: cuando hay una versión nueva, la app lo muestra en *Resumen* y manda una notificación. Al tocarla baja el
+  APK; abrilo y tocá *Actualizar* (Android siempre pide confirmar la instalación de apps fuera de Play). Los datos y el
+  código de conexión se conservan.
 
 ## Comandos útiles (en el servidor)
 

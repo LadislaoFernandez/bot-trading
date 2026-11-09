@@ -134,3 +134,4 @@ jobs:
     uses: ./.github/workflows/android.yml
     with:
       etiqueta: v${{ needs.publicar.outputs.v }}
+    secrets: inherit  # la llave fija con la que se firma el APK

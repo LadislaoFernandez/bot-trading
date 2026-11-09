@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.14"
+VERSION = "1.15"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.15", "09/11/2026", [
+        "App de Android: todas las versiones se firman con la misma llave, así se instalan encima de la anterior "
+        "(antes Android decía que había un conflicto con el paquete). Hace falta desinstalar una sola vez la app vieja.",
+    ]),
     ("1.14", "09/11/2026", [
         "App de Android: botón Pegar en la pantalla del código de conexión (en algunos celulares, mantener apretado el "
         "campo no muestra la opción de pegar).",

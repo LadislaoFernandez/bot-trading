@@ -58,6 +58,19 @@ jobs:
             ~/.buildozer
             android/.buildozer
           key: buildozer-${{ hashFiles('android/buildozer.spec') }}
+      - name: Llave fija para firmar el APK
+        # Android solo deja actualizar la app si la versión nueva viene firmada con la misma llave. La llave está en
+        # el secreto ANDROID_DEBUG_KEYSTORE (archivo en base64); sin ella, cada compilación tendría una llave distinta.
+        env:
+          LLAVE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          if [ -z "$LLAVE" ]; then
+            echo "::error::Falta el secreto ANDROID_DEBUG_KEYSTORE: el APK no se podría instalar encima del anterior."
+            exit 1
+          fi
+          mkdir -p ~/.android
+          echo "$LLAVE" | base64 -d > ~/.android/debug.keystore
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i "SHA-256\|SHA256" || true
       - name: Compilar el APK
         working-directory: android
         run: yes | buildozer android debug
@@ -67,6 +80,13 @@ jobs:
           echo "$m"
           grep -q "ServiceAvisos" "$m" && grep -q "FOREGROUND_SERVICE" "$m" && grep -q "POST_NOTIFICATIONS" "$m"
           grep -o 'targetSdkVersion="[0-9]*"' "$m" || true
+      - name: Revisar la firma del APK
+        run: |
+          signer=$(ls -d ~/.buildozer/android/platform/android-sdk/build-tools/*/apksigner | tail -1)
+          a=$("$signer" verify --print-certs android/bin/*.apk | grep -i "SHA-256 digest" | head -1 | awk '{print $NF}')
+          b=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -i "SHA256:" | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')
+          echo "APK: $a"; echo "llave: $b"
+          [ -n "$a" ] && [ "$a" = "$b" ]
       - name: Nombre final
         run: |
           mkdir -p dist

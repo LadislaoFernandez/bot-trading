@@ -68,12 +68,18 @@ jobs:
             echo "::error::Falta el secreto ANDROID_DEBUG_KEYSTORE: el APK no se podría instalar encima del anterior."
             exit 1
           fi
-          mkdir -p ~/.android
-          echo "$LLAVE" | base64 -d > ~/.android/debug.keystore
-          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i "SHA-256\|SHA256" || true
-      - name: Compilar el APK
+          echo "$LLAVE" | base64 -d > "$RUNNER_TEMP/firma.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/firma.keystore" -storepass android >/dev/null
+      - name: Compilar el APK (versión release, firmada con la llave fija)
         working-directory: android
-        run: yes | buildozer android debug
+        env:
+          P4A_RELEASE_KEYSTORE: ${{ runner.temp }}/firma.keystore
+          P4A_RELEASE_KEYSTORE_PASSWD: android
+          P4A_RELEASE_KEYALIAS: androiddebugkey
+          P4A_RELEASE_KEYALIAS_PASSWD: android
+        run: |
+          rm -rf bin
+          yes | buildozer android release
       - name: Revisar que el APK trae el servicio de avisos
         run: |
           m=$(find android/.buildozer -path "*dists*" -name AndroidManifest.xml | head -1)
@@ -83,14 +89,14 @@ jobs:
       - name: Revisar la firma del APK
         run: |
           signer=$(ls -d ~/.buildozer/android/platform/android-sdk/build-tools/*/apksigner | tail -1)
-          a=$("$signer" verify --print-certs android/bin/*.apk | grep -i "SHA-256 digest" | head -1 | awk '{print $NF}')
-          b=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -i "SHA256:" | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')
+          a=$("$signer" verify --print-certs android/bin/*release*.apk | grep -i "SHA-256 digest" | head -1 | awk '{print $NF}')
+          b=$(keytool -list -v -keystore "$RUNNER_TEMP/firma.keystore" -storepass android | grep -i "SHA256:" | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')
           echo "APK: $a"; echo "llave: $b"
           [ -n "$a" ] && [ "$a" = "$b" ]
       - name: Nombre final
         run: |
           mkdir -p dist
-          cp android/bin/*.apk dist/BotTrading-Control.apk
+          cp android/bin/*release*.apk dist/BotTrading-Control.apk
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:

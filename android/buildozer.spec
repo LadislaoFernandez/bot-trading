@@ -20,6 +20,8 @@ android.api = 33
 android.minapi = 24
 android.archs = arm64-v8a, armeabi-v7a
 android.accept_sdk_license = True
+# release firmado con la llave fija (ver .github/workflows/android.yml); APK y no AAB porque se instala a mano
+android.release_artifact = apk
 android.enable_androidx = True
 p4a.branch = v2024.01.21
 

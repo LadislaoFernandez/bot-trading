@@ -37,7 +37,8 @@ try:
     import main as M
     M.ControlApp._leer_codigo = lambda self: codigo
     app = M.ControlApp()
-    pasos = ["resumen", "posiciones", "operaciones", "estrategias", "avisos", "control", "servidor", "resumen"]
+    pasos = ["resumen", "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
+             "resumen"]
 
     def paso(dt):
         if not app.datos:
@@ -60,7 +61,7 @@ try:
     AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
     AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
     assert os.path.exists(vistos) and not avisados  # sin operaciones nuevas, no avisa nada
-    print("10) app de Android: conecta con el servidor, recorre las 7 pestañas sin errores y el servicio de avisos "
+    print("10) app de Android: conecta con el servidor, recorre las 8 pestañas sin errores y el servicio de avisos "
           "lee los eventos del servidor")
 finally:
     srv.terminate()

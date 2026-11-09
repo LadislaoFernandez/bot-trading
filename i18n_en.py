@@ -872,6 +872,8 @@ EN = {
     'Conectado a {h}:{p}. Servidor versión {v}, modo {m}. Claves cargadas: demo {cd}, real {cr}.': 'Connected to {h}:{p}. Server version {v}, mode {m}. Keys loaded: demo {cd}, real {cr}.',
     'App {v}': 'App {v}',
     'Actualizando a {v}…': 'Updating to {v}…',
+    'Decisiones': 'Decisions',
+    'Qué miró el bot en cada revisión, para cada estrategia en cada moneda: qué condiciones se cumplen (✓) y cuáles faltan (✗) para abrir.': 'What the bot looked at in each check, for each strategy on each coin: which conditions are met (✓) and which are missing (✗) to open.',
     'El bot contra la simulación de Breakout y Resorte de tendencia en el mismo mes.': 'The bot against the simulation of Breakout and Trend spring in the same month.',
     'Monto': 'Amount',
     'Capital': 'Capital',

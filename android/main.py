@@ -273,8 +273,8 @@ class ControlApp(App):
         barra.bind(minimum_width=barra.setter("width"))
         self.tabs = {}
         for k, n in (("resumen", "Resumen"), ("posiciones", "Posiciones"), ("operaciones", "Operaciones"),
-                     ("estrategias", "Estrategias"), ("avisos", "Avisos"), ("control", "Control"),
-                     ("servidor", "Servidor")):
+                     ("estrategias", "Estrategias"), ("decisiones", "Decisiones"), ("avisos", "Avisos"),
+                     ("control", "Control"), ("servidor", "Servidor")):
             b = Button(text=n, font_size=sp(13), background_normal="", background_color=PANEL, color=TEXTO,
                        size_hint_x=None, width=dp(104))
             b.bind(on_release=lambda _b, k=k: self._ir(k))
@@ -285,16 +285,28 @@ class ControlApp(App):
 
     def _ir(self, k):
         self.pestana = k
+        if k == "decisiones":
+            self.rev_idx = 0
+            threading.Thread(target=self._traer_decisiones, daemon=True).start()
         for kk, b in self.tabs.items():
             b.color = ACENTO if kk == k else TEXTO
         self._pintar()
 
     # ---------- datos
+    def _traer_decisiones(self):
+        try:
+            self.decisiones = self.cliente.detalle("decisiones").get("decisiones") or []
+        except Exception as e:
+            self.error = str(e)
+        self._pintar()
+
     def _sondeo(self):
         while True:
             try:
                 d = self.cliente.estado()
                 self.datos, self.error = d, None
+                if getattr(self, "pestana", "") == "decisiones":
+                    self.decisiones = self.cliente.detalle("decisiones").get("decisiones") or []
             except (C.ErrorConexion, C.ErrorServidor) as e:
                 self.error = str(e)
             except Exception as e:
@@ -429,6 +441,52 @@ class ControlApp(App):
             caja.add_widget(t)
         if not d.get("alertas"):
             caja.add_widget(Texto("No hay avisos.", 14, GRIS))
+        self.cuerpo.add_widget(sv)
+
+    def _p_decisiones(self, d):
+        sv, caja = pagina()
+        caja.add_widget(Texto("Qué miró el bot en cada revisión, para cada estrategia en cada moneda: qué condiciones se "
+                              "cumplen (en verde) y cuáles faltan (en rojo) para abrir.", 13, GRIS))
+        dec = getattr(self, "decisiones", None)
+        if dec is None:
+            caja.add_widget(Texto("Cargando…", 15, GRIS)); self.cuerpo.add_widget(sv); return
+        if not dec:
+            caja.add_widget(Texto("Todavía no hay revisiones registradas. La primera aparece después de la próxima "
+                                  "revisión del bot.", 15, GRIS))
+            self.cuerpo.add_widget(sv); return
+        i = min(getattr(self, "rev_idx", 0), len(dec) - 1)
+        x = dec[i]
+        h = datetime.fromisoformat(x["hora"])
+        fila = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+
+        def mover(paso):
+            self.rev_idx = max(0, min(len(dec) - 1, i + paso)); self._pintar()
+        fila.add_widget(Boton("< Anterior", lambda: mover(1)))
+        fila.add_widget(Boton("Siguiente >", lambda: mover(-1)))
+        caja.add_widget(fila)
+        caja.add_widget(Texto(f"Revisión del {h:%d/%m %H:%M}, vela de {x['vela']}" + (" (la última)" if i == 0 else ""),
+                              15, negrita=True))
+        ab = sum(1 for it in x["items"] if it["accion"] == "abre")
+        ce = sum(1 for it in x["items"] if it["accion"] == "cierra")
+        caja.add_widget(Texto(f"Abrió {ab} y cerró {ce} posiciones. Revisó {len(x['items'])} partes del capital.", 13))
+        acciones = {"abre": ("Abre", VERDE), "cierra": ("Cierra", ACENTO), "mantiene": ("Mantiene", AMBAR),
+                    "no_abre": ("No abre", GRIS), "inactiva": ("Desactivada", GRIS)}
+        for it in x["items"]:
+            t = Tarjeta()
+            txt, col = acciones.get(it["accion"], (it["accion"], GRIS))
+            t.add_widget(Texto(f"{it['activo']} · {it.get('estrategia', '')}", 15, negrita=True))
+            t.add_widget(Texto(txt, 14, col, negrita=True))
+            conds = it.get("condiciones") or []
+            if it["accion"] == "no_abre" and conds:
+                t.add_widget(Texto(f"Se cumplen {sum(1 for _, ok in conds if ok)} de {len(conds)} condiciones para "
+                                   "entrar:", 13))
+            elif it["accion"] == "no_abre":
+                t.add_widget(Texto("No hubo señal de entrada.", 13, GRIS))
+            elif it.get("texto"):
+                t.add_widget(Texto(it["texto"][0].upper() + it["texto"][1:] + ".", 13))
+            for ctext, ok in conds:
+                t.add_widget(Texto(("Sí · " if ok else "No · ") + ctext, 13, VERDE if ok else ROJO))
+            caja.add_widget(t)
         self.cuerpo.add_widget(sv)
 
     def _fila_switch(self, caja, texto, activo, al_cambiar):

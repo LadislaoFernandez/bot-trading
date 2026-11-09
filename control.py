@@ -23,7 +23,7 @@ from app import (ACCENT, AMBER, FONT, FONT_TXT, GAIN, LOSS, MUTED, NB, QSS, TEXT
 from PySide6.QtCore import Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QFont, QIcon  # noqa: E402
 from PySide6.QtNetwork import QLocalSocket  # noqa: E402
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QDoubleSpinBox, QFrame, QGridLayout,  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout,  # noqa: E402
                                QHBoxLayout, QInputDialog, QLineEdit, QMainWindow, QPlainTextEdit, QPushButton,
                                QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
@@ -151,7 +151,7 @@ class Control(QMainWindow):
         self.paginas = QStackedWidget(); self.paginas.setObjectName("pagina")
         hl.addWidget(self.paginas, 1)
         for crear in (self._pag_resumen, self._pag_posiciones, self._pag_operaciones, self._pag_estrategias,
-                      self._pag_avisos, self._pag_registro, self._pag_servidor):
+                      self._pag_avisos, self._pag_decisiones, self._pag_registro, self._pag_servidor):
             self.paginas.addWidget(crear())
         self.nav[0].setChecked(True)
         self.parar = threading.Event()
@@ -197,6 +197,8 @@ class Control(QMainWindow):
                         self.detalles[q] = self.cliente.detalle(q)
                     prox_det = time.time() + 60
                 if self.paginas.currentIndex() == 5:
+                    self.detalles["decisiones"] = self.cliente.detalle("decisiones")
+                if self.paginas.currentIndex() == 6:
                     self.detalles["registro"] = self.cliente.detalle("registro")
             except (C.ErrorConexion, C.ErrorServidor) as e:
                 self.error = str(e); self.version_datos += 1
@@ -239,7 +241,7 @@ class Control(QMainWindow):
         head.addLayout(tv, 1); v.addLayout(head); v.addSpacing(22)
         self.nav, grupo = [], QButtonGroup(self)
         for i, n in enumerate([t("Resumen"), t("Posiciones"), t("Operaciones"), t("Estrategias"), t("Avisos"),
-                               t("Registro"), t("Servidor")]):
+                               t("Decisiones"), t("Registro"), t("Servidor")]):
             b = QPushButton(n); b.setProperty("rol", "nav"); b.setCheckable(True); b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, i=i: self.ir_a(i)); grupo.addButton(b); v.addWidget(b); self.nav.append(b)
         v.addStretch()
@@ -349,6 +351,84 @@ class Control(QMainWindow):
         self.box_av.setSpacing(10); self._av_firma = None
         v.addWidget(scroll(inner), 1)
         return w
+
+    def _pag_decisiones(self):
+        w, v = self._pagina(t("Decisiones"), t("Qué miró el bot en cada revisión, para cada estrategia en cada moneda: "
+                                               "qué condiciones se cumplen (✓) y cuáles faltan (✗) para abrir."))
+        h = QHBoxLayout(); h.addWidget(lbl(t("Revisión"), size=13))
+        self.cmb_rev = QComboBox(); self.cmb_rev.setMinimumWidth(260)
+        self.cmb_rev.currentIndexChanged.connect(lambda _i: self._pintar_decision())
+        h.addWidget(self.cmb_rev); h.addStretch(); v.addLayout(h)
+        inner = QWidget(); self.box_dec = QVBoxLayout(inner); self.box_dec.setContentsMargins(0, 0, 0, 0)
+        self.box_dec.setSpacing(8); v.addWidget(scroll(inner), 1)
+        self._dec_firma, self._dec = None, []
+        return w
+
+    def _p_decisiones(self, d):
+        dec = (self.detalles.get("decisiones") or {}).get("decisiones")
+        if dec is None:
+            if self._dec_firma is None:
+                self._vaciar_dec(); self.box_dec.addWidget(lbl(t("Cargando…"), rol="muted", size=13))
+                self._dec_firma = "cargando"
+            return
+        firma = (len(dec), dec[0]["hora"] if dec else None)
+        if firma == self._dec_firma:
+            return
+        en_ultima = self.cmb_rev.currentIndex() <= 0
+        sel = self.cmb_rev.currentText()
+        self._dec_firma, self._dec = firma, dec
+        self.cmb_rev.blockSignals(True); self.cmb_rev.clear()
+        for x in dec:
+            h = datetime.fromisoformat(x["hora"])
+            self.cmb_rev.addItem(t("{h}, vela de {v}", h=f"{h:%d/%m %H:%M}", v=x["vela"]))
+        self.cmb_rev.setCurrentIndex(0 if en_ultima else max(0, self.cmb_rev.findText(sel)))
+        self.cmb_rev.blockSignals(False)
+        self._pintar_decision()
+
+    def _vaciar_dec(self):
+        while self.box_dec.count():
+            it = self.box_dec.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+
+    def _pintar_decision(self):
+        self._vaciar_dec()
+        if not self._dec:
+            self.box_dec.addWidget(lbl(t("Todavía no hay revisiones registradas con el detalle de cada decisión. La "
+                                         "primera aparece después de la próxima revisión del bot."), rol="muted", size=14,
+                                       wrap=True))
+            self.box_dec.addStretch(); return
+        x = self._dec[max(0, self.cmb_rev.currentIndex())]
+        ab = sum(1 for it in x["items"] if it["accion"] == "abre")
+        ce = sum(1 for it in x["items"] if it["accion"] == "cierra")
+        self.box_dec.addWidget(lbl(t("En esta revisión el bot abrió {a} y cerró {c} posiciones. Revisó {n} partes del "
+                                     "capital.", a=ab, c=ce, n=len(x["items"])), size=14, wrap=True))
+        acciones = {"abre": (t("Abre"), GAIN), "cierra": (t("Cierra"), ACCENT), "mantiene": (t("Mantiene"), AMBER),
+                    "no_abre": (t("No abre"), MUTED), "inactiva": (t("Desactivada"), MUTED)}
+        for it in x["items"]:
+            card = panel(); hl = QHBoxLayout(card); hl.setContentsMargins(16, 12, 16, 12); hl.setSpacing(18)
+            izq = QVBoxLayout(); izq.setSpacing(4)
+            izq.addWidget(lbl(it["activo"], size=15, weight=600))
+            izq.addWidget(lbl(it.get("estrategia", ""), rol="muted", size=12, wrap=True))
+            txt, col = acciones.get(it["accion"], (it["accion"], MUTED))
+            c = lbl("", rol="chip"); chip(c, txt, col); izq.addWidget(c, 0, Qt.AlignLeft); izq.addStretch()
+            iz = QWidget(); iz.setLayout(izq); iz.setFixedWidth(180); hl.addWidget(iz)
+            der = QVBoxLayout(); der.setSpacing(3)
+            conds = it.get("condiciones") or []
+            if it["accion"] == "no_abre" and conds:
+                principal = t("Se cumplen {c} de {n} condiciones para entrar:", c=sum(1 for _, ok in conds if ok),
+                              n=len(conds))
+            elif it["accion"] == "no_abre":
+                principal = t("No hubo señal de entrada.")
+            else:
+                tx = it.get("texto") or ""
+                principal = (tx[0].upper() + tx[1:] + ".") if tx else ""
+            der.addWidget(lbl(principal, size=13, wrap=True))
+            for ctext, ok in conds:
+                der.addWidget(lbl(("✓  " if ok else "✗  ") + ctext, size=12, color=GAIN if ok else LOSS, wrap=True))
+            hl.addLayout(der, 1)
+            self.box_dec.addWidget(card)
+        self.box_dec.addStretch()
 
     def _pag_registro(self):
         w, v = self._pagina(t("Registro"), t("Lo que va haciendo el bot en el servidor, revisión por revisión."))
@@ -497,8 +577,8 @@ class Control(QMainWindow):
         self.btn_bot.setProperty("rol", "peligro" if corriendo else "primario"); self.btn_bot.style().polish(self.btn_bot)
         self.btn_revisar.setEnabled(bool(corriendo))
         i = self.paginas.currentIndex()
-        [self._p_resumen, self._p_posiciones, self._p_operaciones, self._p_estrategias, self._p_avisos, self._p_registro,
-         self._p_servidor][i](d)
+        [self._p_resumen, self._p_posiciones, self._p_operaciones, self._p_estrategias, self._p_avisos,
+         self._p_decisiones, self._p_registro, self._p_servidor][i](d)
         self.nav[4].setText(t("Avisos ({n})", n=d.get("sin_leer")) if d.get("sin_leer") else t("Avisos"))
 
     def _p_resumen(self, d):

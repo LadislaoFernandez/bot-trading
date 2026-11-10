@@ -439,6 +439,26 @@ def prueba_oci():
     assert lanz[-1]["createVnicDetails"]["assignPublicIp"] is True
     reglas = next(c for m, ru, c in pedidos if m == "PUT" and ru == "/securityLists/sl1")["ingressSecurityRules"]
     assert {x["tcpOptions"]["destinationPortRange"]["min"] for x in reglas if x["protocol"] == "6"} == {22, 8443}
+    # sin lugar en ninguna forma: reintenta solo hasta que aparece
+    sin_lugar = {"veces": 2}
+    abrir_orig = abrir
+
+    def abrir2(req):
+        if req.get_method() == "POST" and req.full_url.endswith("/instances") and sin_lugar["veces"] > 0:
+            if json.loads(req.data)["shape"].startswith("VM.Standard.E2"):
+                sin_lugar["veces"] -= 1
+            raise urllib.error.HTTPError(req.full_url, 500, "x", {}, io.BytesIO(
+                json.dumps({"code": "InternalError", "message": "Out of host capacity."}).encode()))
+        return abrir_orig(req)
+    msgs = []
+    res = O.crear_servidor(O.OCI(cfg, priv, abrir=abrir2), sc, "k", log=msgs.append, espera=0)
+    assert res["ip"] == "9.9.9.9" and sum("Reintento" in m for m in msgs) == 2, msgs
+    try:
+        O.crear_servidor(O.OCI(cfg, priv, abrir=lambda r: abrir2(r) if sin_lugar.update(veces=99) is None else None), sc,
+                         "k", log=lambda *a: None, espera=0, reintentar_minutos=0)
+        assert False, "sin lugar y sin tiempo: tiene que avisar"
+    except O.ErrorOCI as e:
+        assert e.sin_capacidad()
     try:
         O.crear_servidor(O.OCI(dict(cfg, region="us-ashburn-1"), priv, abrir=abrir), sc, "k", log=lambda *a: None)
         assert False

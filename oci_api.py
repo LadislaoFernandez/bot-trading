@@ -211,8 +211,11 @@ class OCI:
 
 
 # ---------------------------------------------------------------- crear el servidor
-def crear_servidor(oci, script, ssh_pub, log=print):
-    """Red + puerto 8443 + máquina Always Free con el script de arranque. Devuelve {ip, instancia, forma}."""
+def crear_servidor(oci, script, ssh_pub, log=print, reintentar_minutos=120, espera=60, cancelado=lambda: False):
+    """Red + puerto 8443 + máquina Always Free con el script de arranque. Devuelve {ip, instancia, forma}.
+
+    Las máquinas gratis muchas veces no tienen lugar ("Out of host capacity"): en ese caso reintenta cada `espera`
+    segundos hasta `reintentar_minutos`, como hacen todos los que las consiguen."""
     if oci.region not in REGIONES_OK:
         raise ValueError(f"Tu cuenta de Oracle está en la región {oci.region}. Binance no funciona desde los "
                          "servidores de Estados Unidos y las máquinas gratis solo se crean en la región de inicio: "
@@ -255,43 +258,62 @@ def crear_servidor(oci, script, ssh_pub, log=print):
         sub = oci.esperar(f"/subnets/{sub['id']}")
 
     datos_usuario = base64.b64encode(script.encode()).decode()
-    ultimo = None
-    for forma, config in FORMAS:
+    imagenes = {}
+    for forma, _ in FORMAS:
         imgs = oci.get("/images", compartmentId=comp, operatingSystem="Canonical Ubuntu", operatingSystemVersion="22.04",
                        shape=forma, sortBy="TIMECREATED", sortOrder="DESC", limit=1)
-        if not imgs:
-            continue
-        for ad in ads:
-            log(f"Creando la máquina ({forma}, {ad.split(':')[-1]})…")
-            cuerpo = {"availabilityDomain": ad, "compartmentId": comp, "displayName": NOMBRE, "shape": forma,
-                      "sourceDetails": {"sourceType": "image", "imageId": imgs[0]["id"]},
-                      "createVnicDetails": {"subnetId": sub["id"], "assignPublicIp": True},
-                      "metadata": {"ssh_authorized_keys": ssh_pub, "user_data": datos_usuario}}
-            if config:
-                cuerpo["shapeConfig"] = config
-            try:
-                inst = oci.post("/instances", cuerpo)
-            except ErrorOCI as e:
-                ultimo = e
-                if e.sin_capacidad() or e.sin_cupo():
-                    log(f"  Sin lugar o sin cupo gratis para {forma} ahí: pruebo otra opción.")
-                    continue
-                raise
-            log("Esperando que la máquina arranque (2 a 5 minutos)…")
-            inst = oci.esperar(f"/instances/{inst['id']}", "RUNNING", maximo=900, cada=10)
-            vnics = oci.get("/vnicAttachments", compartmentId=comp, instanceId=inst["id"])
-            ip = None
-            for _ in range(30):
-                vnics = vnics or oci.get("/vnicAttachments", compartmentId=comp, instanceId=inst["id"])
-                if vnics and vnics[0].get("vnicId"):
-                    ip = oci.get(f"/vnics/{vnics[0]['vnicId']}").get("publicIp")
-                    if ip:
-                        break
-                time.sleep(5); vnics = None
-            if not ip:
-                raise ErrorOCI(0, "SinIP", "La máquina arrancó pero no tiene IP pública.")
-            return {"ip": ip, "instancia": inst["id"], "forma": forma}
-    raise ultimo or ErrorOCI(0, "SinForma", "No se encontró una imagen de Ubuntu para las formas gratis.")
+        if imgs:
+            imagenes[forma] = imgs[0]["id"]
+    if not imagenes:
+        raise ErrorOCI(0, "SinForma", "No se encontró una imagen de Ubuntu para las formas gratis.")
+    fin, intento = time.time() + reintentar_minutos * 60, 0
+    while True:
+        intento += 1
+        ultimo, sin_lugar = None, True
+        for forma, config in FORMAS:
+            if forma not in imagenes:
+                continue
+            for ad in ads:
+                if intento == 1:
+                    log(f"Creando la máquina ({forma}, {ad.split(':')[-1]})…")
+                cuerpo = {"availabilityDomain": ad, "compartmentId": comp, "displayName": NOMBRE, "shape": forma,
+                          "sourceDetails": {"sourceType": "image", "imageId": imagenes[forma]},
+                          "createVnicDetails": {"subnetId": sub["id"], "assignPublicIp": True},
+                          "metadata": {"ssh_authorized_keys": ssh_pub, "user_data": datos_usuario}}
+                if config:
+                    cuerpo["shapeConfig"] = config
+                try:
+                    inst = oci.post("/instances", cuerpo)
+                except ErrorOCI as e:
+                    ultimo = e
+                    if e.sin_capacidad() or e.sin_cupo():
+                        sin_lugar = sin_lugar and e.sin_capacidad()
+                        if intento == 1:
+                            log(f"  {'Sin lugar' if e.sin_capacidad() else 'Sin cupo gratis'} para {forma} ahí.")
+                        continue
+                    raise
+                log(f"Máquina creada ({forma}). Esperando que arranque (2 a 5 minutos)…")
+                return _terminar(oci, comp, inst, forma)
+        if not sin_lugar or time.time() + espera > fin or cancelado():
+            raise ultimo
+        log(f"Oracle no tiene lugar para máquinas gratis en este momento. Reintento en {espera} segundos "
+            f"(intento {intento}; sigo probando hasta {reintentar_minutos // 60} horas, podés dejar la ventana abierta).")
+        time.sleep(espera)
+
+
+def _terminar(oci, comp, inst, forma):
+    inst = oci.esperar(f"/instances/{inst['id']}", "RUNNING", maximo=900, cada=10)
+    ip = None
+    for _ in range(30):
+        vnics = oci.get("/vnicAttachments", compartmentId=comp, instanceId=inst["id"])
+        if vnics and vnics[0].get("vnicId"):
+            ip = oci.get(f"/vnics/{vnics[0]['vnicId']}").get("publicIp")
+            if ip:
+                break
+        time.sleep(5)
+    if not ip:
+        raise ErrorOCI(0, "SinIP", "La máquina arrancó pero no tiene IP pública.")
+    return {"ip": ip, "instancia": inst["id"], "forma": forma}
 
 
 def nuevo_token():

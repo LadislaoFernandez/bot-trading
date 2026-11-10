@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.22"
+VERSION = "1.23"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.23", "10/11/2026", [
+        "Asistente de Oracle: si Oracle no tiene lugar para máquinas gratis, reintenta solo cada minuto (hasta 2 horas) "
+        "en lugar de fallar.",
+    ]),
     ("1.22", "10/11/2026", [
         "Control de Windows: asistente que crea el servidor gratis en Oracle Cloud con un botón (red, puerto, máquina "
         "Always Free e instalación del bot), sin comandos ni SSH. Solo hace falta la cuenta de Oracle y una clave de API "

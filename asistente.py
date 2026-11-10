@@ -83,7 +83,7 @@ class AsistenteServidor(QDialog):
         self.pasos = QStackedWidget(); v.addWidget(self.pasos, 1)
         self.pasos.addWidget(self._p_inicio()); self.pasos.addWidget(self._p_clave())
         self.pasos.addWidget(self._p_progreso()); self.pasos.addWidget(self._p_listo())
-        self._log, self._fin, self._error, self._mostrado = [], None, None, 0
+        self._log, self._fin, self._error, self._mostrado, self._cancelar = [], None, None, 0, False
         self.reloj = QTimer(self); self.reloj.timeout.connect(self._mirar); self.reloj.start(500)
 
     def _p_inicio(self):
@@ -145,6 +145,10 @@ class AsistenteServidor(QDialog):
         v.addLayout(h)
         return w
 
+    def reject(self):
+        self._cancelar = True  # si estaba esperando lugar en Oracle, deja de reintentar
+        super().reject()
+
     # ----- trabajo en segundo plano
     def log(self, x):
         self._log.append(f"{time.strftime('%H:%M:%S')}  {x}")
@@ -172,7 +176,8 @@ class AsistenteServidor(QDialog):
             token = O.nuevo_token()
             cert, clave, huella = O.generar_certificado()
             ssh_priv, ssh_pub = O.generar_ssh()
-            res = O.crear_servidor(O.OCI(cfg, self.priv), O.script_arranque(token, cert, clave), ssh_pub, log=self.log)
+            res = O.crear_servidor(O.OCI(cfg, self.priv), O.script_arranque(token, cert, clave), ssh_pub, log=self.log,
+                                   cancelado=lambda: self._cancelar)
             ruta_ssh = os.path.join(os.path.expanduser("~"), ".ssh", f"bot-trading-{res['ip']}.key")
             try:
                 os.makedirs(os.path.dirname(ruta_ssh), exist_ok=True)

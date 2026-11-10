@@ -59,7 +59,8 @@ try:
     cli = C.Cliente(codigo)
     assert "eventos" in cli.detalle("eventos")
     assert cli.accion("push_registrar", token="token-de-prueba", version="1.0") == "sin_firebase"
-    assert cli.estado()["push"] == {"configurado": False, "celulares": 1}
+    ep = cli.estado()["push"]
+    assert ep["configurado"] is False and ep["celulares"] == 1, ep
     assert cli.accion("push_quitar", token="token-de-prueba") == "ok"
     assert cli.estado()["push"]["celulares"] == 0
     # intermediario de avisos: sin token de la app, pero este servidor no tiene clave de Firebase → lo rechaza

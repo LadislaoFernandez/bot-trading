@@ -51,12 +51,14 @@ class Broker:
         return dict(total=float(u.get("total") or 0), libre=float(u.get("free") or 0), usado=float(u.get("used") or 0))
 
     def preparar(self, symbols):
-        """Modo cobertura, margen aislado y apalancamiento. Ignora los avisos de 'ya estaba así'."""
+        """Modo cobertura, margen aislado y apalancamiento. Ignora los avisos de 'ya estaba así' y el rechazo por tener
+        órdenes abiertas (-4067): pasa al reiniciar con posiciones abiertas, cuyos stops son órdenes, y la cuenta ya
+        quedó configurada cuando se abrieron."""
         notas = []
         try:
             self.ex.set_position_mode(True)
         except Exception as e:
-            if "No need" not in str(e) and "-4059" not in str(e):
+            if "No need" not in str(e) and "-4059" not in str(e) and "-4067" not in str(e):
                 notas.append(f"Modo cobertura: {e}"[:160])
         for sym in symbols:
             if sym in self.preparado:
@@ -65,7 +67,7 @@ class Broker:
                 try:
                     f(*args)
                 except Exception as e:
-                    if "No need" not in str(e) and "-4046" not in str(e):
+                    if "No need" not in str(e) and "-4046" not in str(e) and "-4067" not in str(e):
                         notas.append(f"{sym}: {e}"[:160])
             self.preparado.add(sym)
         return notas

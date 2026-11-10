@@ -42,8 +42,9 @@ VERSION = "1.18"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
     ("1.18", "10/11/2026", [
-        "App de Android: los avisos de operaciones siguen llegando con la pantalla apagada (antes Android los pausaba "
-        "hasta abrir la app). La app pide excluirla del ahorro de batería y muestra en Control si lo está.",
+        "Avisos al celular por Firebase Cloud Messaging (como Instagram): el servidor los manda y llegan aunque la app "
+        "esté cerrada y la pantalla apagada, sin ajustes de batería. La app ya no deja un servicio corriendo.",
+        "Servidor: comando probar_push para probar los avisos.",
     ]),
     ("1.17", "09/11/2026", [
         "Control de Windows y app de Android: pestaña Decisiones, con lo que miró el bot en cada revisión para cada "

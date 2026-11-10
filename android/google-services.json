@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "710552339964",
+    "project_id": "bot-trading-a5294",
+    "storage_bucket": "bot-trading-a5294.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710552339964:android:99521eba1ce6f427ca1e79",
+        "android_client_info": {
+          "package_name": "io.github.ladislaofernandez.botcontrol"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFr8dvCdWyzNLI2Fv-cUiPVoB3WbYwk5E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

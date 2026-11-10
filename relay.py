@@ -4,4 +4,5 @@ Los servidores que no tienen su propia clave (firebase-servidor.json) le mandan 
 Google. Solo reenvía a celulares cuyo token ya conoce quien lo pide (el token lo da el celular a su propio servidor).
 Se completa con la salida de `servidor.py relay_info` en el servidor del dueño.
 """
-RELAY = None  # {"url": "https://IP:8443", "huella": "<sha256 del certificado>"}
+RELAY = {"url": "https://147.15.78.163:8443",
+         "huella": "7024d9b064c43062ed19106f77df85bf1f09dfe651c30731dba770c7c5589af0"}

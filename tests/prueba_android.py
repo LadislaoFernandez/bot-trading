@@ -7,6 +7,8 @@ import sys
 import tempfile
 import time
 
+os.environ["BOT_SIN_RELAY"] = "1"  # que el servidor de prueba no use el intermediario de avisos real
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 tmp = tempfile.mkdtemp(prefix="servidor_android_")
 for f in os.listdir(RAIZ):

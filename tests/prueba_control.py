@@ -7,6 +7,8 @@ import sys
 import tempfile
 import time
 
+os.environ["BOT_SIN_RELAY"] = "1"  # que el servidor de prueba no use el intermediario de avisos real
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 tmp = tempfile.mkdtemp(prefix="servidor_prueba_")

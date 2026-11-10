@@ -160,6 +160,8 @@ class Relay:
 
 
 def relay_disponible():
+    if os.environ.get("BOT_SIN_RELAY"):  # pruebas: no tocar el servidor del dueño
+        return False
     try:
         import relay
         info = relay.RELAY

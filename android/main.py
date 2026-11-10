@@ -451,13 +451,27 @@ class ControlApp(App):
 
     def _p_posiciones(self, d):
         sv, caja = pagina()
+        caja.add_widget(Texto("No hay un precio objetivo fijo: el stop sigue al precio cuando va a favor (stop móvil), así "
+                              "las ganancias corren. Cierra en ganancia cuando el precio vuelve hasta ese stop después de "
+                              "haberlo empujado más allá de la entrada.", 13, GRIS))
+
+        def px(v):
+            return num(v, 2 if (v or 0) >= 100 else 4) if v else "—"
         for f in d["snap"]["posiciones"]:
             t = Tarjeta()
             t.add_widget(Texto(f"{f['activo']} · {f['estrategia']}", 16, negrita=True))
             t.add_widget(Texto(f"Monto {usd(f['asignado'])} · capital {usd(f['capital'])}", 14, GRIS))
             if f["lado"]:
-                t.add_widget(Texto(f"{'Compra' if f['lado'] == 'long' else 'Venta'} a {num(f['entrada'])} · stop "
-                                   f"{num(f['stop'])} · {usd(f.get('pnl'), 2, True)}", 14, color(f.get("pnl"))))
+                st = -f["riesgo"] if f.get("riesgo") is not None else None
+                g = GridLayout(cols=2, size_hint_y=None, spacing=dp(4)); g.bind(minimum_height=g.setter("height"))
+                for tit, v, c in (("Posición", "Compra" if f["lado"] == "long" else "Venta", TEXTO),
+                                  ("Entrada", px(f["entrada"]), TEXTO),
+                                  ("Precio actual", px(f.get("precio")), TEXTO),
+                                  ("Stop", px(f["stop"]), TEXTO),
+                                  ("Si toca el stop", usd(st, 2, True), color(st)),
+                                  ("Resultado ahora", usd(f.get("pnl"), 2, True), color(f.get("pnl")))):
+                    g.add_widget(Texto(tit, 13, GRIS)); g.add_widget(Texto(v, 15, c, negrita=True))
+                t.add_widget(g)
             else:
                 t.add_widget(Texto("Sin posición abierta", 14, GRIS))
             caja.add_widget(t)

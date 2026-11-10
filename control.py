@@ -317,9 +317,15 @@ class Control(QMainWindow):
         return w
 
     def _pag_posiciones(self):
-        w, v = self._pagina(t("Posiciones"), t("Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta."))
+        w, v = self._pagina(t("Posiciones"), t("Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta. "
+                                               "No hay un precio objetivo fijo: Breakout y Resorte de tendencia usan un "
+                                               "stop móvil que sigue al precio cuando va a favor, así las ganancias corren. "
+                                               "La operación cierra en ganancia cuando el precio vuelve hasta ese stop "
+                                               "después de haberlo empujado por encima de la entrada (o por debajo, en una "
+                                               "venta). \"Si toca el stop\" muestra cuánto ganaría o perdería en ese "
+                                               "caso."))
         self.tab_pos = tabla([t("Moneda"), t("Estrategia"), t("Monto"), t("Capital"), t("Posición"), t("Entrada"),
-                              t("Stop"), t("Resultado")])
+                              t("Precio actual"), t("Stop"), t("Si toca el stop"), t("Resultado")])
         v.addWidget(self.tab_pos, 1)
         return w
 
@@ -654,9 +660,12 @@ class Control(QMainWindow):
             celda(tb, r, 0, f["activo"], bold=True); celda(tb, r, 1, f["estrategia"])
             celda(tb, r, 2, usd(f["asignado"])); celda(tb, r, 3, usd(f["capital"]))
             celda(tb, r, 4, (t("Compra") if f["lado"] == "long" else t("Venta")) if f["lado"] else "—")
-            celda(tb, r, 5, num(f["entrada"], 2) if f["entrada"] else "—")
-            celda(tb, r, 6, num(f["stop"], 2) if f["stop"] else "—")
-            celda(tb, r, 7, usd(f["pnl"], 2, True) if f.get("pnl") is not None else "—", color_de(f.get("pnl")))
+            celda(tb, r, 5, U.A.fmt_precio(f["entrada"]) if f["entrada"] else "—")
+            celda(tb, r, 6, U.A.fmt_precio(f["precio"]) if f.get("precio") else "—")
+            celda(tb, r, 7, U.A.fmt_precio(f["stop"]) if f["stop"] else "—")
+            st = -f["riesgo"] if f.get("riesgo") is not None else None
+            celda(tb, r, 8, usd(st, 2, True) if st is not None else "—", color_de(st))
+            celda(tb, r, 9, usd(f["pnl"], 2, True) if f.get("pnl") is not None else "—", color_de(f.get("pnl")))
 
     def _p_operaciones(self, d):
         ops = (self.detalles.get("operaciones") or {}).get("operaciones") or []  # la más reciente primero

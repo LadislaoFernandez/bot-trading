@@ -43,6 +43,8 @@ REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (Git
 HISTORIAL_VERSIONES = [
     ("1.19", "10/11/2026", [
         "Control de Windows y app de Android: precio actual de BTC, ETH y SOL y su cambio en 24 horas en Resumen.",
+        "Posiciones: precio actual de cada posición abierta y cuánto ganaría o perdería si toca el stop (las estrategias "
+        "no tienen precio objetivo fijo: usan stop móvil).",
     ]),
     ("1.18", "10/11/2026", [
         "Avisos al celular por Firebase Cloud Messaging (como Instagram): el servidor los manda y llegan aunque la app "

@@ -10,8 +10,8 @@ CARPETA="$HOME/bot-trading"
 PUERTO="${PUERTO:-8443}"
 
 echo "== 1/7 Paquetes del sistema"
-sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv python3-pip unzip curl iptables-persistent >/dev/null
+sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=900 update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=900 install -y -qq python3 python3-venv python3-pip unzip curl iptables-persistent >/dev/null
 
 echo "== 2/7 Hora de Argentina (para que los días y el registro coincidan con la app)"
 sudo timedatectl set-timezone America/Argentina/Buenos_Aires || true

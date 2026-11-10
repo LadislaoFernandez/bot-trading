@@ -357,6 +357,101 @@ def prueba_claves_desde_app():
     print("9) claves de Binance desde la app: Ed25519 generada en el servidor, prueba de conexión y cambio de modo")
 
 
+def prueba_oci():
+    """Asistente de Windows: firma de la API de Oracle y creación del servidor contra un Oracle falso."""
+    import base64
+    import io
+    import json
+    import urllib.error
+    import oci_api as O
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    priv, pub, fp = O.generar_clave_api()
+    assert fp == O.huella_de_privada(priv) and len(fp.split(":")) == 16 and "BEGIN PUBLIC KEY" in pub
+    texto = ("[DEFAULT]\nuser=ocid1.user.oc1..aaa\nfingerprint=" + fp + "\ntenancy=ocid1.tenancy.oc1..bbb\n"
+             "region=sa-saopaulo-1\nkey_file=<path to your private keyfile> # TODO\n")
+    cfg = O.leer_configuracion(texto)
+    assert cfg["region"] == "sa-saopaulo-1"
+    try:
+        O.leer_configuracion("hola"); assert False
+    except ValueError:
+        pass
+    oci = O.OCI(cfg, priv)
+    # la firma: texto firmado exacto, verificable con la pública
+    h = oci.cabeceras("POST", "https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/vcns?x=1", b'{"a":1}',
+                      fecha="Thu, 05 Jan 2014 21:31:40 GMT")
+    firmado = ("date: Thu, 05 Jan 2014 21:31:40 GMT\n(request-target): post /20160918/vcns?x=1\n"
+               "host: iaas.sa-saopaulo-1.oraclecloud.com\ncontent-length: 7\ncontent-type: application/json\n"
+               "x-content-sha256: " + h["x-content-sha256"])
+    sig = h["authorization"].split('signature="')[1].rstrip('"')
+    serialization.load_pem_public_key(pub.encode()).verify(base64.b64decode(sig), firmado.encode(), padding.PKCS1v15(),
+                                                           hashes.SHA256())
+    assert 'headers="date (request-target) host content-length content-type x-content-sha256"' in h["authorization"]
+    assert f'keyId="ocid1.tenancy.oc1..bbb/ocid1.user.oc1..aaa/{fp}"' in h["authorization"]
+    hg = oci.cabeceras("GET", "https://iaas.x/20160918/vcns", fecha="d")
+    assert 'headers="date (request-target) host"' in hg["authorization"] and "x-content-sha256" not in hg
+    # cloud-init y código
+    cert, clave, huella = O.generar_certificado()
+    tok = O.nuevo_token()
+    sc = O.script_arranque(tok, cert, clave)
+    assert sc.startswith("#!/bin/bash") and tok in sc and huella in sc and "instalar_servidor.sh" in sc
+    assert C_leer(O.codigo_conexion("1.2.3.4", tok, huella)) == {"h": "1.2.3.4", "p": 8443, "t": tok, "f": huella}
+
+    # Oracle falso: Ampere sin capacidad → usa la micro
+    pedidos, estado = [], {"n": 0}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    def abrir(req):
+        u, m = req.full_url, req.get_method()
+        assert "authorization" in {k.lower() for k in req.headers}
+        cuerpo = json.loads(req.data) if req.data else None
+        pedidos.append((m, u.split("20160918")[1].split("?")[0], cuerpo))
+        ruta = pedidos[-1][1]
+        def r(x): return Resp(json.dumps(x).encode())
+        if ruta == "/availabilityDomains": return r([{"name": "xx:SA-SAOPAULO-1-AD-1"}])
+        if m == "GET" and ruta in ("/vcns", "/internetGateways", "/subnets"): return r([])
+        if m == "POST" and ruta == "/vcns": return r({"id": "vcn1"})
+        if ruta == "/vcns/vcn1": return r({"id": "vcn1", "lifecycleState": "AVAILABLE", "defaultRouteTableId": "rt1",
+                                          "defaultSecurityListId": "sl1"})
+        if m == "POST" and ruta == "/internetGateways": return r({"id": "igw1"})
+        if ruta == "/internetGateways/igw1": return r({"id": "igw1", "lifecycleState": "AVAILABLE"})
+        if m == "PUT": return r({})
+        if m == "POST" and ruta == "/subnets": return r({"id": "sub1"})
+        if ruta == "/subnets/sub1": return r({"id": "sub1", "lifecycleState": "AVAILABLE"})
+        if ruta == "/images": return r([{"id": "img-" + u.split("shape=")[1].split("&")[0]}])
+        if m == "POST" and ruta == "/instances":
+            if cuerpo["shape"].startswith("VM.Standard.A1"):
+                raise urllib.error.HTTPError(u, 500, "x", {}, io.BytesIO(
+                    json.dumps({"code": "InternalError", "message": "Out of host capacity."}).encode()))
+            return r({"id": "inst1"})
+        if ruta == "/instances/inst1": return r({"id": "inst1", "lifecycleState": "RUNNING"})
+        if ruta == "/vnicAttachments": return r([{"vnicId": "vnic1"}])
+        if ruta == "/vnics/vnic1": return r({"publicIp": "9.9.9.9"})
+        raise AssertionError(f"pedido inesperado {m} {ruta}")
+    oci = O.OCI(cfg, priv, abrir=abrir)
+    res = O.crear_servidor(oci, sc, "ssh-ed25519 AAAA bot-trading", log=lambda *a: None)
+    assert res == {"ip": "9.9.9.9", "instancia": "inst1", "forma": "VM.Standard.E2.1.Micro"}, res
+    lanz = [c for m, ru, c in pedidos if m == "POST" and ru == "/instances"]
+    assert lanz[-1]["metadata"]["user_data"] == base64.b64encode(sc.encode()).decode()
+    assert lanz[-1]["createVnicDetails"]["assignPublicIp"] is True
+    reglas = next(c for m, ru, c in pedidos if m == "PUT" and ru == "/securityLists/sl1")["ingressSecurityRules"]
+    assert {x["tcpOptions"]["destinationPortRange"]["min"] for x in reglas if x["protocol"] == "6"} == {22, 8443}
+    try:
+        O.crear_servidor(O.OCI(dict(cfg, region="us-ashburn-1"), priv, abrir=abrir), sc, "k", log=lambda *a: None)
+        assert False
+    except ValueError:
+        pass
+    print("10) asistente de Oracle: firma de la API, script de arranque y creación del servidor (con Ampere sin lugar)")
+
+
+def C_leer(cod):
+    import cliente_api
+    return cliente_api.leer_codigo(cod)
+
+
 def prueba_actualizador():
     import actualizador as AC
     import config as K
@@ -392,4 +487,5 @@ if __name__ == "__main__":
     prueba_laboratorio()
     prueba_reparto()
     prueba_claves_desde_app()
+    prueba_oci()
     print(f"TODO OK en {time.time() - t0:.0f} s")

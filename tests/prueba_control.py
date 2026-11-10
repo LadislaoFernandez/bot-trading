@@ -39,14 +39,26 @@ try:
     while time.time() < fin and (w.datos is None or "curva" not in w.detalles):
         qa.processEvents(); time.sleep(0.1)
     assert w.datos and not w.error, w.error
-    for i in range(7):
+    for i in range(8):
         w.ir_a(i)
         w.pintado = -1; w._pintar(); qa.processEvents()
     assert "USDT" in w.lbl_saldo.text(), w.lbl_saldo.text()
     assert w.datos["servidor"] and w.tab_pos.rowCount() >= 0
     cl = C.Cliente(codigo)
     assert cl.accion("piloto", activo=True) == "ok" and cl.estado()["snap"]["auto"] is True
-    print("9) app de control: conecta con el servidor por HTTPS fijado, recorre las 7 pantallas y manda acciones")
+    # asistente para crear el servidor y diálogo para conectar Binance (sin Oracle ni Binance de verdad)
+    import asistente
+    a = asistente.AsistenteServidor(None)
+    assert "BEGIN PUBLIC KEY" in a.pub and os.path.exists(asistente.ARCH_CLAVE_OCI)
+    for i in range(4):
+        a.pasos.setCurrentIndex(i); qa.processEvents()
+    a2 = asistente.AsistenteServidor(None)
+    assert a2.pub == a.pub  # la clave de API de Oracle se guarda y se reutiliza
+    dlg = asistente.DialogoClaves(None, cl, "demo")
+    assert "BEGIN PUBLIC KEY" in dlg.pub
+    assert cl.estado()["claves"] == {"demo": False, "real": False}  # todavía sin API key: no hay claves cargadas
+    print("9) app de control: conecta con el servidor por HTTPS fijado, recorre las 8 pantallas, manda acciones y abre "
+          "el asistente de Oracle y el de Binance")
     w.parar.set()
 finally:
     srv.terminate()

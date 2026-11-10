@@ -456,8 +456,8 @@ class Control(QMainWindow):
         return w
 
     def _pag_servidor(self):
-        w, v = self._pagina(t("Servidor"), t("Conexión, riesgo, capital, laboratorio y actualizaciones del bot en la nube. "
-                                             "Las claves de Binance y el modo se cambian en el servidor, por seguridad."))
+        w, v = self._pagina(t("Servidor"), t("Conexión, cuenta de Binance, riesgo, capital, laboratorio y actualizaciones "
+                                             "del bot en la nube."))
         inner = QWidget(); iv = QVBoxLayout(inner); iv.setContentsMargins(0, 0, 0, 0); iv.setSpacing(16)
 
         def seccion(titulo, ayuda=None):
@@ -469,8 +469,19 @@ class Control(QMainWindow):
             return pv
         pv = seccion(t("Conexión"))
         self.lbl_con = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_con)
-        h = QHBoxLayout(); h.addWidget(boton(t("Cambiar código de conexión"), accion=self._cambiar_codigo)); h.addStretch()
+        h = QHBoxLayout(); h.addWidget(boton(t("Cambiar código de conexión"), accion=self._cambiar_codigo))
+        h.addWidget(boton(t("Crear un servidor nuevo en Oracle"), accion=self._crear_servidor)); h.addStretch()
         pv.addLayout(h)
+
+        pv = seccion(t("Cuenta de Binance"), t(
+            "El servidor genera la clave para Binance y la parte privada nunca sale de él; la app solo le pasa la API "
+            "key que te muestra Binance. Empezá por la demo (dinero de prueba)."))
+        self.lbl_binance = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_binance)
+        h = QHBoxLayout()
+        h.addWidget(boton(t("Conectar Binance demo"), "primario", lambda: self._claves("demo")))
+        h.addWidget(boton(t("Conectar Binance real"), accion=lambda: self._claves("real")))
+        self.btn_simulado = boton(t("Volver a modo simulado"), accion=self._a_simulado); h.addWidget(self.btn_simulado)
+        h.addStretch(); pv.addLayout(h)
 
         pv = seccion(t("Riesgo"), t("Riesgo por operación, límite de pérdida (frena el bot si la cuenta pierde ese porcentaje "
                                     "del capital del modo) y espera de la orden límite antes de completarla a mercado."))
@@ -797,7 +808,34 @@ class Control(QMainWindow):
         if abajo:
             sb.setValue(sb.maximum())
 
+    def _claves(self, modo):
+        import asistente
+        try:
+            dlg = asistente.DialogoClaves(self, self.cliente, modo)
+        except (C.ErrorConexion, C.ErrorServidor) as e:
+            return aviso(self, t("Cuenta de Binance"), str(e), True)
+        dlg.exec()
+        self.pintado = -1
+
+    def _a_simulado(self):
+        if preguntar(self, t("Modo simulado"), t("¿Pasar el bot a modo simulado? Deja de mandar órdenes a Binance (las "
+                                                 "posiciones abiertas quedan con su stop en Binance)."), t("Pasar"),
+                     t("Cancelar")):
+            self._accion("cambiar_modo", t("Listo. El servidor se reinicia (menos de un minuto)."), modo="simulado")
+
+    def _crear_servidor(self):
+        import asistente
+        dlg = asistente.AsistenteServidor(self, guardar_codigo)
+        if dlg.exec() and dlg.codigo:
+            self.cliente = C.Cliente(dlg.codigo); self.version_datos += 1
+            self.ir_a(7); QTimer.singleShot(500, lambda: self._claves("demo"))
+
     def _p_servidor(self, d):
+        modo = d.get("modo")
+        self.lbl_binance.setText(t("Modo actual: {m}. Clave demo: {cd}. Clave real: {cr}.", m=d["nombre_modo"],
+                                   cd=t("cargada") if d["claves"].get("demo") else t("sin cargar"),
+                                   cr=t("cargada") if d["claves"].get("real") else t("sin cargar")))
+        self.btn_simulado.setVisible(modo != "simulado")
         self.lbl_con.setText(t("Conectado a {h}:{p}. Servidor versión {v}, modo {m}. Claves cargadas: demo {cd}, real {cr}.",
                                h=self.cliente.host, p=self.cliente.puerto, v=d["version"], m=d["nombre_modo"],
                                cd=t("sí") if d["claves"].get("demo") else t("no"),
@@ -859,10 +897,22 @@ def main():
             limpiar_app_vieja()
         except Exception as e:
             print("limpieza:", type(e).__name__, e)
-    codigo = leer_codigo() or pedir_codigo(None)
+    codigo, recien_creado = leer_codigo(), False
+    if not codigo:
+        if preguntar(None, t("Bot de trading"), t(
+                "¿Ya tenés un servidor del bot? Si es la primera vez, la app crea uno gratis en Oracle Cloud y lo deja "
+                "funcionando (solo necesitás una cuenta de Oracle)."), t("Crear mi servidor"), t("Ya tengo un código")):
+            import asistente
+            dlg = asistente.AsistenteServidor(None, guardar_codigo)
+            dlg.exec()
+            codigo, recien_creado = dlg.codigo, bool(dlg.codigo)
+        else:
+            codigo = pedir_codigo(None)
     if not codigo:
         return
     w = Control(codigo); w.show()
+    if recien_creado:  # servidor recién creado por el asistente: lo siguiente es conectar Binance
+        w.ir_a(7); QTimer.singleShot(800, lambda: w._claves("demo"))
     code = app.exec()
     w.parar.set()
     sys.exit(code)

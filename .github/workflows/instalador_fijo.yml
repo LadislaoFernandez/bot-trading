@@ -1,0 +1,23 @@
+# Agrega a la última versión una copia del instalador con nombre fijo (BotTrading-Setup.exe), para el link de la guía.
+# Las versiones nuevas ya la traen (publicar.yml); esto es para una versión publicada antes de ese cambio.
+name: Instalador con nombre fijo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  copiar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copiar el instalador de la última versión
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          tag=$(gh release view -R "$REPO" --json tagName -q .tagName)
+          gh release download "$tag" -R "$REPO" -p "BotTrading-Setup-*.exe"
+          cp BotTrading-Setup-*.exe BotTrading-Setup.exe
+          gh release upload "$tag" BotTrading-Setup.exe -R "$REPO" --clobber

@@ -1,7 +1,7 @@
 # Publica una versión nueva. Se lanza subiendo una etiqueta vX.Y (igual a VERSION en config.py) o a mano desde
 # Actions → "Publicar versión" → Run workflow con "publicar" tildado. Arma
 #   - actualizacion.zip            (lo baja la app para actualizarse sola)
-#   - BotTrading-Setup-X.Y.exe     (instalador completo, con Python incluido)
+#   - BotTrading-Setup-X.Y.exe     (instalador completo, con Python incluido; también como BotTrading-Setup.exe)
 # y los adjunta a una Release de GitHub.
 name: Publicar versión
 
@@ -103,6 +103,8 @@ jobs:
           $v = Get-Content build/version.txt
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DVersion=$v" installer\bot_trading.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC falló" }
+          # copia con nombre fijo: el link de la guía (releases/latest/download/BotTrading-Setup.exe) no cambia nunca
+          Copy-Item "dist/BotTrading-Setup-$v.exe" "dist/BotTrading-Setup.exe"
       - name: Probar que la app arranca con el Python del instalador
         shell: pwsh
         run: |
@@ -128,6 +130,7 @@ jobs:
           files: |
             dist/actualizacion.zip
             dist/BotTrading-Setup-*.exe
+            dist/BotTrading-Setup.exe
 
   android:
     # la app de control para Android, adjunta a la misma versión

@@ -181,6 +181,24 @@ class Servicio:
         if PT.leer_ajustes().get("bot_activo", True):
             self.bot.iniciar()
         threading.Thread(target=self._tareas, daemon=True).start()
+        threading.Thread(target=self._push, daemon=True).start()
+
+    def _push(self):
+        """Cada 15 segundos: si hubo aperturas o cierres nuevos, avisa al celular por Firebase (push)."""
+        import push
+        fb, error_previo = None, None
+        while not self.salir.is_set():
+            try:
+                if push.configurado():
+                    fb = fb or push.Firebase()
+                    push.ciclo(fb, eventos_operaciones("."), t(K.NOMBRE_MODO[K.MODO]), K.VERSION, log=PT.log)
+                error_previo = None
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"[:300]
+                if msg != error_previo:  # no llena el registro con el mismo error cada 15 segundos
+                    PT.log(f"Avisos al celular: {msg}")
+                error_previo, fb = msg, None
+            self.salir.wait(15)
 
     def _tareas(self):
         """Cada 5 minutos: laboratorio semanal. Cada hora: busca actualizaciones (y las instala si está activado)."""
@@ -225,6 +243,11 @@ class Servicio:
             self.salir.set()
         threading.Thread(target=_salir, daemon=True).start()
 
+    @staticmethod
+    def _estado_push():
+        import push
+        return {"configurado": push.configurado(), "celulares": len(push.tokens())}
+
     # ---------- lo que leen las apps
     def estado(self):
         import alertas
@@ -264,6 +287,7 @@ class Servicio:
                 claves={m: __import__("claves").hay(m) for m in ("demo", "real")},
                 actualizacion=self.actualizacion,
                 actualizaciones_auto=bool(aj.get("instalar_actualizaciones_auto", True)),
+                push=self._estado_push(),
             )
             self.cache, self.cache_t = out, time.time()
             return out
@@ -287,6 +311,13 @@ class Servicio:
     def accion(self, d):
         a = d.get("accion")
         self.cache = None
+        if a == "push_registrar":
+            import push
+            push.registrar(str(d.get("token") or ""), str(d.get("version") or "") or None)
+            return "ok" if push.configurado() else "sin_firebase"
+        if a == "push_quitar":
+            import push
+            push.quitar(str(d.get("token") or "")); return "ok"
         if a == "iniciar":
             PT.guardar_ajustes(bot_activo=True); self.bot.iniciar()
             PT.log(t("Bot iniciado desde la app de control.")); return "ok"
@@ -590,6 +621,23 @@ def cmd_estado(a):
     print(f"Versión {K.VERSION} · modo {K.MODO} · saldo {s['saldo']:.2f} USDT · posiciones abiertas {len(s['abiertas'])}")
 
 
+def cmd_probar_push(a):
+    import push
+    if not push.configurado():
+        print(f"Falta {push.ARCH_CLAVE} en {os.getcwd()}: copiá ahí la clave de la cuenta de servicio de Firebase.")
+        return
+    fb = push.Firebase()
+    try:
+        fb._acceso()
+    except Exception as e:
+        print(f"No se pudo autenticar con Firebase: {type(e).__name__}: {e}"); return
+    print(f"Firebase OK (proyecto {fb.proyecto}). Celulares registrados: {len(push.tokens())}.")
+    if not push.tokens():
+        print("Abrí la app del celular (versión nueva) para que se registre y volvé a probar."); return
+    ok, err = push.enviar_a_todos(fb, "Prueba de avisos", "Si ves esto, los avisos del bot llegan al celular.")
+    print(f"Enviados: {ok}." + (f" Errores: {err}" if err else ""))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Bot de trading en un servidor")
     sub = ap.add_subparsers(dest="cmd")
@@ -599,11 +647,12 @@ def main():
     for nombre in ("claves", "probar"):
         p = sub.add_parser(nombre); p.add_argument("modo", choices=["demo", "real"])
     p = sub.add_parser("modo"); p.add_argument("modo", choices=["simulado", "demo", "real"])
-    sub.add_parser("estado"); sub.add_parser("correr")
+    sub.add_parser("estado"); sub.add_parser("correr"); sub.add_parser("probar_push")
     a = ap.parse_args()
     try:
         {"preparar": cmd_preparar, "codigo": cmd_codigo, "claves": cmd_claves, "probar": cmd_probar, "modo": cmd_modo,
-         "estado": cmd_estado, "correr": lambda a: correr(), None: lambda a: ap.print_help()}[a.cmd](a)
+         "estado": cmd_estado, "correr": lambda a: correr(), "probar_push": cmd_probar_push,
+         None: lambda a: ap.print_help()}[a.cmd](a)
     except KeyboardInterrupt:
         print("\nCancelado.")
 

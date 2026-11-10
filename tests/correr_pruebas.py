@@ -143,7 +143,6 @@ def prueba_binance(semilla, auto=False):
         if auto:
             PT.guardar_auto(activo=True)
         st = PT.load_state()
-        sys.path.insert(0, os.path.join(RAIZ, "android"))
         import avisos as AV
         import servidor as SV  # al importarse se para en la carpeta del código: volver a la de la prueba
         os.chdir(d)
@@ -179,8 +178,21 @@ def prueba_binance(semilla, auto=False):
         assert not AV.nuevos(SV.eventos_operaciones("."), vistos)
         # aviso de app nueva: una sola vez por versión, y sin borrar los avisos ya vistos
         assert AV.version_nueva("1.13", "1.12") and not AV.version_nueva("1.12", "1.12") and not AV.version_nueva("1.12", None)
-        assert AV.avisar_version("1.13", "1.12", vistos) == "1.13" and AV.avisar_version("1.13", "1.12", vistos) is None
-        assert not AV.nuevos(SV.eventos_operaciones("."), vistos)
+        # push por Firebase (con un Firebase falso): un aviso por operación nueva y uno por versión nueva de la app
+        import push as PU
+
+        class FbFalso:
+            def __init__(self): self.enviados = []
+            def enviar(self, token, titulo, cuerpo, etiqueta=None):
+                self.enviados.append((token, titulo)); return "invalido" if token == "viejo" else "ok"
+        fb = FbFalso()
+        PU.registrar("cel", "1.12"); PU.registrar("viejo", "1.12")
+        assert PU.ciclo(fb, SV.eventos_operaciones("."), "Demo", "1.12") == 0 and not fb.enviados  # primera vez: marca
+        assert PU.ciclo(fb, SV.eventos_operaciones("."), "Demo", "1.13") == 0
+        assert [x for x in fb.enviados if x[0] == "cel"] == [("cel", "Hay una versión nueva de la app (1.13)")]
+        assert "viejo" not in PU.tokens()  # el token que ya no sirve se borra
+        PU.ciclo(fb, SV.eventos_operaciones("."), "Demo", "1.13")
+        assert len([x for x in fb.enviados if x[0] == "cel"]) == 1  # la versión se avisa una sola vez
         txt = "\n".join(logs)
         print(f"3) Binance falso (semilla {semilla}{', modo automático' if auto else ''}): {txt.count('abrió')} aperturas, "
               f"{txt.count('Binance ejecutó el stop')} stops ejecutados, cerrar todo cerró {n}; todo coincide; "

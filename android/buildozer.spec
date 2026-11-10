@@ -7,22 +7,23 @@ source.include_exts = py,png,json
 version = 1.0
 requirements = python3,kivy==2.3.0
 orientation = portrait
-# servicio que avisa aperturas y cierres aunque la app esté cerrada (ver servicio_avisos.py)
-services = Avisos:servicio_avisos.py:foreground:sticky
 fullscreen = 0
 icon.filename = %(source.dir)s/icono.png
 presplash.filename = %(source.dir)s/icono.png
 android.presplash_color = #0f1115
-android.permissions = INTERNET, FOREGROUND_SERVICE, POST_NOTIFICATIONS, WAKE_LOCK, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-# 33 y no 34: con 34 Android 14 exige declarar el tipo de servicio en primer plano, y esta versión de
-# python-for-android no lo permite. Para una app que se instala con el APK (no desde Play) no cambia nada.
-android.api = 33
+android.permissions = INTERNET, POST_NOTIFICATIONS
+android.api = 34
 android.minapi = 24
 android.archs = arm64-v8a, armeabi-v7a
 android.accept_sdk_license = True
 # release firmado con la llave fija (ver .github/workflows/android.yml); APK y no AAB porque se instala a mano
 android.release_artifact = apk
 android.enable_androidx = True
+# avisos push con Firebase Cloud Messaging (como Instagram): la configuración del proyecto va como recursos de Android
+# (res_firebase/values/firebase.xml lo arma el workflow desde google-services.json)
+android.gradle_dependencies = com.google.firebase:firebase-messaging:23.4.1
+android.add_resources = res_firebase/values/firebase.xml:values/firebase.xml
+android.meta_data = com.google.firebase.messaging.default_notification_channel_id=operaciones
 p4a.branch = v2024.01.21
 
 [buildozer]

@@ -27,7 +27,6 @@ from kivy.utils import get_color_from_hex as hexc, platform
 
 import cliente_api as C
 
-SERVICIO = "io.github.ladislaofernandez.botcontrol.ServiceAvisos"  # package.domain + package.name + Service<Nombre>
 
 FONDO, PANEL, TEXTO, GRIS = hexc("#0f1115"), hexc("#181b22"), hexc("#e8eaf0"), hexc("#8b90a0")
 VERDE, ROJO, AMBAR, ACENTO = hexc("#2fbf71"), hexc("#e5484d"), hexc("#f5a524"), hexc("#f08a24")
@@ -111,15 +110,19 @@ class ControlApp(App):
     title = "Bot de trading"
 
     def on_pause(self):
+        self.en_frente = False  # con la app cerrada o en segundo plano, los avisos llegan por push (Firebase)
         return True  # al salir de la app, Android la deja en pausa en lugar de cerrarla
 
     def on_resume(self):
+        self._primer_vistazo = True  # lo que pasó mientras estaba cerrada ya llegó por push: no repetirlo
+        self.en_frente = True
         if getattr(self, "cliente", None) and getattr(self, "datos", None):
-            Clock.schedule_once(lambda dt: self._pintar(), 0.3)  # por ejemplo, al volver de los ajustes de batería
+            Clock.schedule_once(lambda dt: self._pintar(), 0.3)
 
     def build(self):
         self.archivo = os.path.join(self.user_data_dir, "codigo.json")
         self.cliente, self.datos, self.error, self.pestana = None, None, None, "resumen"
+        self.en_frente, self._primer_vistazo = True, True
         self.raiz = BoxLayout(orientation="vertical")
         cod = self._leer_codigo()
         if cod:
@@ -185,9 +188,9 @@ class ControlApp(App):
             self._sondeando = True
             threading.Thread(target=self._sondeo, daemon=True).start()
         if self._avisos_activos():
-            self._arrancar_avisos()
+            self._activar_push()
 
-    # ---------- notificaciones de operaciones (servicio aparte que sigue aunque cierres la app)
+    # ---------- notificaciones de operaciones: push de Firebase (llegan con la app cerrada, como Instagram)
     def _avisos_activos(self):
         try:
             with open(os.path.join(self.user_data_dir, "avisos_ajustes.json"), encoding="utf-8") as f:
@@ -199,59 +202,53 @@ class ControlApp(App):
         with open(os.path.join(self.user_data_dir, "avisos_ajustes.json"), "w", encoding="utf-8") as f:
             json.dump({"activo": bool(activo)}, f)
 
-    def _arrancar_avisos(self):
+    def _activar_push(self):
+        """Pide permiso de notificaciones, crea el canal y registra este celular en el servidor."""
         if platform != "android":
             return
         try:
-            from android.permissions import Permission, request_permissions
-            if hasattr(Permission, "POST_NOTIFICATIONS"):
-                request_permissions([Permission.POST_NOTIFICATIONS])  # Android 13 o más: pide permiso una vez
-        except Exception:
-            pass
-        if self._sin_ahorro_bateria() is False and not getattr(self, "_pidio_ahorro", False):
-            self._pidio_ahorro = True
-            Clock.schedule_once(lambda dt: self._pedir_sin_ahorro(), 2)
-        try:
-            from jnius import autoclass
-            act = autoclass("org.kivy.android.PythonActivity").mActivity
-            autoclass(SERVICIO).start(act, "", "Bot de trading", "Avisos de operaciones encendidos",
-                                      json.dumps({"carpeta": self.user_data_dir}))
+            import notificaciones as N
+            N.pedir_permiso()
+            N.crear_canal()
+            N.pedir_token(self._token_listo)
         except Exception as e:
-            self.error_avisos = f"{type(e).__name__}: {e}"
+            self.estado_push = f"No se pudieron activar: {type(e).__name__}: {e}"[:200]
 
-    # ---------- ahorro de batería: sin la excepción, Android pausa los avisos con la pantalla apagada
-    def _sin_ahorro_bateria(self):
-        """True si Android ya no le aplica el ahorro de batería a la app (None si no se puede saber)."""
-        if platform != "android":
-            return None
-        try:
-            from jnius import autoclass, cast
-            act = autoclass("org.kivy.android.PythonActivity").mActivity
-            pm = cast("android.os.PowerManager", act.getSystemService(autoclass("android.content.Context").POWER_SERVICE))
-            return bool(pm.isIgnoringBatteryOptimizations(act.getPackageName()))
-        except Exception:
-            return None
-
-    def _pedir_sin_ahorro(self):
-        if platform != "android":
+    def _token_listo(self, token, error):
+        if error or not token:
+            self.estado_push = f"Firebase no dio el token: {error}"[:200]
             return
-        try:
-            from jnius import autoclass
-            act = autoclass("org.kivy.android.PythonActivity").mActivity
-            Intent, Uri = autoclass("android.content.Intent"), autoclass("android.net.Uri")
-            act.startActivity(Intent("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-                                     Uri.parse("package:" + act.getPackageName())))
-        except Exception as e:
-            self.error_avisos = f"{type(e).__name__}: {e}"
+        self.token_push = token
 
-    def _parar_avisos(self):
-        if platform != "android":
+        def registrar():
+            try:
+                r = self.cliente.accion("push_registrar", token=token, version=self._version_app())
+                self.estado_push = "ok" if r == "ok" else "falta_servidor"
+            except Exception as e:
+                self.estado_push = f"No se pudo registrar en el servidor: {e}"[:200]
+        threading.Thread(target=registrar, daemon=True).start()
+
+    def _desactivar_push(self):
+        tk = getattr(self, "token_push", None)
+        if tk:
+            threading.Thread(target=lambda: self.cliente.accion("push_quitar", token=tk), daemon=True).start()
+        self.estado_push = "apagado"
+
+    def _avisos_en_frente(self):
+        """Con la app abierta, Android no muestra los push: la app avisa ella misma de lo nuevo."""
+        if platform != "android" or not self._avisos_activos():
             return
-        try:
-            from jnius import autoclass
-            autoclass(SERVICIO).stop(autoclass("org.kivy.android.PythonActivity").mActivity)
-        except Exception:
-            pass
+        import avisos as AV
+        vistos = os.path.join(self.user_data_dir, "avisos_vistos_app.json")
+        ev = self.cliente.detalle("eventos")
+        if self._primer_vistazo or not self.en_frente:
+            AV.nuevos(ev.get("eventos") or [], vistos)  # solo marca
+            self._primer_vistazo = False
+            return
+        import notificaciones as N
+        for e in AV.nuevos(ev.get("eventos") or [], vistos):
+            titulo, cuerpo = AV.texto(e, ev.get("nombre_modo") or "")
+            N.notificar(e["id"], titulo, cuerpo)
 
     # ---------- versión nueva de la app (cada versión del servidor trae su APK)
     def _version_app(self):
@@ -291,9 +288,9 @@ class ControlApp(App):
     def _cambiar_avisos(self, activo):
         self._guardar_avisos(activo)
         if activo:
-            self._arrancar_avisos()
+            self._activar_push()
         else:
-            self._parar_avisos()
+            self._desactivar_push()
 
     # ---------- estructura: contenido + barra de pestañas abajo
     def _armar(self):
@@ -342,6 +339,7 @@ class ControlApp(App):
                 self.datos, self.error = d, None
                 if getattr(self, "pestana", "") == "decisiones":
                     self.decisiones = self.cliente.detalle("decisiones").get("decisiones") or []
+                self._avisos_en_frente()
             except (C.ErrorConexion, C.ErrorServidor) as e:
                 self.error = str(e)
             except Exception as e:
@@ -546,21 +544,23 @@ class ControlApp(App):
         caja.add_widget(t)
         t = Tarjeta(); t.add_widget(Texto("Notificaciones", 17, negrita=True))
         t.add_widget(Texto("Te avisa en el celular cada vez que el bot abre o cierra una operación, aunque la app esté "
-                           "cerrada. Android muestra una notificación fija \"Avisos\" mientras está encendido. Si "
-                           "reiniciás el celular, abrí la app una vez para que vuelva a avisar.", 13, GRIS))
+                           "cerrada y la pantalla apagada. Los avisos los manda el servidor por Firebase (el mismo "
+                           "sistema de Google que usan Instagram o WhatsApp).", 13, GRIS))
         self._fila_switch(t, "Avisar operaciones", self._avisos_activos(), self._cambiar_avisos)
-        sin = self._sin_ahorro_bateria()
-        if sin is True:
-            t.add_widget(Texto("Ahorro de batería: la app está excluida, los avisos llegan con la pantalla apagada.", 13,
-                               VERDE))
-        elif sin is False:
-            t.add_widget(Texto("Ahorro de batería: la app NO está excluida. Con la pantalla apagada Android pausa los "
-                               "avisos y llegan recién cuando abrís la app.", 13, AMBAR, negrita=True))
-            t.add_widget(Boton("Permitir que funcione en segundo plano", self._pedir_sin_ahorro, col=ACENTO))
-        t.add_widget(Texto("En Samsung, Xiaomi, Motorola y otras marcas, además: Ajustes → Apps → Bot de trading → "
-                           "Batería → \"Sin restricciones\" (y en Xiaomi, \"Inicio automático\" activado).", 12, GRIS))
-        if getattr(self, "error_avisos", None):
-            t.add_widget(Texto("No se pudieron encender: " + self.error_avisos[:160], 13, ROJO))
+        ep = getattr(self, "estado_push", None)
+        srv = d.get("push") or {}
+        if not self._avisos_activos():
+            pass
+        elif ep == "ok" and srv.get("configurado"):
+            t.add_widget(Texto("Avisos encendidos: este celular está registrado en el servidor.", 13, VERDE))
+        elif ep == "falta_servidor" or (srv and not srv.get("configurado")):
+            t.add_widget(Texto("El celular está listo, pero al servidor le falta la clave de Firebase "
+                               "(firebase-servidor.json). Hasta que la tenga, los avisos llegan solo con la app abierta.",
+                               13, AMBAR))
+        elif ep and ep not in ("ok", "apagado"):
+            t.add_widget(Texto(ep, 13, ROJO))
+        else:
+            t.add_widget(Texto("Registrando este celular…", 13, GRIS))
         caja.add_widget(t)
         self.cuerpo.add_widget(sv)
 

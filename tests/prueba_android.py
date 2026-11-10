@@ -52,17 +52,15 @@ try:
     app.run()
     assert app.datos and not app.error, app.error
     assert not errores, errores
-    # servicio de avisos: una vuelta contra el servidor real (la parte de Android solo muestra la notificación)
-    import avisos as AV
+    # avisos push: el celular se registra en el servidor (sin clave de Firebase el servidor lo acepta igual)
     import cliente_api as C
-    vistos, avisados = os.path.join(tmp, "vistos.json"), []
     cli = C.Cliente(codigo)
     assert "eventos" in cli.detalle("eventos")
-    AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
-    AV.ciclo(cli, vistos, lambda *a: avisados.append(a))
-    assert os.path.exists(vistos) and not avisados  # sin operaciones nuevas, no avisa nada
-    print("10) app de Android: conecta con el servidor, recorre las 8 pestañas sin errores y el servicio de avisos "
-          "lee los eventos del servidor")
+    assert cli.accion("push_registrar", token="token-de-prueba", version="1.0") == "sin_firebase"
+    assert cli.estado()["push"] == {"configurado": False, "celulares": 1}
+    assert cli.accion("push_quitar", token="token-de-prueba") == "ok"
+    assert cli.estado()["push"]["celulares"] == 0
+    print("10) app de Android: conecta con el servidor, recorre las 8 pestañas sin errores y se registra para los avisos")
 finally:
     srv.terminate()
     srv.wait(10)

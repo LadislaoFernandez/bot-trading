@@ -40,9 +40,32 @@ jobs:
           sudo apt-get install -y -qq xvfb libgl1 libmtdev1 >/dev/null
           pip install -q "kivy==2.3.0" "cryptography>=42"
           xvfb-run -a python tests/prueba_android.py
-      - name: Preparar la app (cliente de la API, ícono y versión)
+      - name: Preparar la app (cliente de la API, textos de avisos, Firebase, ícono y versión)
         run: |
-          cp cliente_api.py android/
+          cp cliente_api.py avisos.py android/
+          if [ ! -f android/google-services.json ]; then
+            echo "::error::Falta android/google-services.json (configuración del proyecto de Firebase)."; exit 1
+          fi
+          python - <<'PY'
+          # lo mismo que haría el plugin google-services: la configuración de Firebase como recursos de Android
+          import json, os
+          g = json.load(open("android/google-services.json", encoding="utf-8"))
+          c = next(c for c in g["client"]
+                   if c["client_info"]["android_client_info"]["package_name"] == "io.github.ladislaofernandez.botcontrol")
+          v = {"google_app_id": c["client_info"]["mobilesdk_app_id"],
+               "gcm_defaultSenderId": g["project_info"]["project_number"],
+               "google_api_key": c["api_key"][0]["current_key"],
+               "google_crash_reporting_api_key": c["api_key"][0]["current_key"],
+               "project_id": g["project_info"]["project_id"],
+               "google_storage_bucket": g["project_info"].get("storage_bucket", "")}
+          os.makedirs("android/res_firebase/values", exist_ok=True)
+          with open("android/res_firebase/values/firebase.xml", "w", encoding="utf-8") as f:
+              f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n')
+              for k, x in v.items():
+                  f.write(f'    <string name="{k}" translatable="false">{x}</string>\n')
+              f.write("</resources>\n")
+          print("Firebase:", v["project_id"])
+          PY
           python - <<'PY'
           from PIL import Image
           Image.open("app_icon.ico").convert("RGBA").resize((512, 512)).save("android/icono.png")
@@ -80,12 +103,16 @@ jobs:
         run: |
           rm -rf bin
           yes | buildozer android release
-      - name: Revisar que el APK trae el servicio de avisos
+      - name: Revisar que el APK trae Firebase (avisos push)
         run: |
           m=$(find android/.buildozer -path "*dists*" -name AndroidManifest.xml | head -1)
           echo "$m"
-          grep -q "ServiceAvisos" "$m" && grep -q "FOREGROUND_SERVICE" "$m" && grep -q "POST_NOTIFICATIONS" "$m" && grep -q "WAKE_LOCK" "$m" && grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$m"
+          grep -q "POST_NOTIFICATIONS" "$m" && grep -q "default_notification_channel_id" "$m"
           grep -o 'targetSdkVersion="[0-9]*"' "$m" || true
+          signer=$(ls -d ~/.buildozer/android/platform/android-sdk/build-tools/*/ | tail -1)
+          "$signer/aapt" dump xmltree android/bin/*release*.apk AndroidManifest.xml | grep -q "com.google.firebase.messaging.FirebaseMessagingService"
+          "$signer/aapt" dump resources android/bin/*release*.apk | grep -q "string/google_app_id"
+          unzip -l android/bin/*release*.apk | grep -c "dex" 
       - name: Revisar la firma del APK
         run: |
           signer=$(ls -d ~/.buildozer/android/platform/android-sdk/build-tools/*/apksigner | tail -1)

@@ -1,9 +1,6 @@
-"""Lógica de las notificaciones de operaciones (sin nada de Android, así se puede probar en la PC).
-
-El servicio del celular pide cada minuto los eventos al servidor (aperturas y cierres, /api/detalle/eventos) y avisa de
-los que todavía no vio. Los ids ya vistos se guardan en un archivo de la app. La primera vez solo marca lo que ya
-existía, para no llenar el celular de avisos viejos.
-"""
+"""Textos y control de "ya avisado" de las notificaciones de operaciones (lo usan el servidor, que manda los avisos
+push, y la app de Android, que avisa ella misma mientras está abierta). Los ids ya avisados se guardan en un archivo;
+la primera vez solo marca lo que ya existía, para no mandar avisos viejos."""
 import json
 import os
 
@@ -85,30 +82,3 @@ def version_tupla(v):
 def version_nueva(version_servidor, version_app):
     """True si el servidor ya tiene una versión más nueva que la app instalada (cada versión trae su APK)."""
     return bool(version_servidor and version_app) and version_tupla(version_servidor) > version_tupla(version_app)
-
-
-def avisar_version(version_servidor, version_app, ruta_vistos):
-    """Devuelve la versión a avisar si hay una app nueva y todavía no se avisó de esa versión (un aviso por versión)."""
-    if not version_nueva(version_servidor, version_app):
-        return None
-    estado = leer_json(ruta_vistos, {}) or {}
-    if estado.get("version_avisada") == version_servidor:
-        return None
-    estado["version_avisada"] = version_servidor
-    escribir_json(ruta_vistos, estado)
-    return version_servidor
-
-
-def ciclo(cliente, ruta_vistos, notificar, version_app=None, notificar_version=None):
-    """Una vuelta del servicio: pide los eventos y notifica los nuevos. Devuelve cuántos avisó."""
-    d = cliente.detalle("eventos")
-    n = 0
-    for e in nuevos(d.get("eventos") or [], ruta_vistos):
-        titulo, cuerpo = texto(e, d.get("nombre_modo") or "")
-        notificar(e["id"], titulo, cuerpo)
-        n += 1
-    if notificar_version:
-        v = avisar_version(d.get("version"), version_app, ruta_vistos)
-        if v:
-            notificar_version(v)
-    return n

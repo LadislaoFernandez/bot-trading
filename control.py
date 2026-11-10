@@ -286,6 +286,18 @@ class Control(QMainWindow):
         hv.addLayout(g, 3)
         self.btn_reanudar = boton(t("Reanudar"), "primario", self._reanudar); self.btn_reanudar.setVisible(False)
         hv.addWidget(self.btn_reanudar)
+        mk = QVBoxLayout(); mk.setSpacing(8)
+        mk.addWidget(lbl(t("Mercado ahora"), rol="muted", size=13))
+        self.lbl_precios = {}
+        for a in K.SYMBOLS:
+            row = QHBoxLayout(); row.setSpacing(10)
+            row.addWidget(lbl(a, size=14, weight=600)); row.addStretch()
+            pl, cl = lbl("—", size=14, family=FONT), lbl("", size=12)
+            cl.setMinimumWidth(96); cl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row.addWidget(pl); row.addWidget(cl)
+            self.lbl_precios[a] = (pl, cl); mk.addLayout(row)
+        self.lbl_precios_upd = lbl("", rol="muted", size=11, wrap=True); mk.addWidget(self.lbl_precios_upd)
+        mkw = QWidget(); mkw.setLayout(mk); mkw.setFixedWidth(270); hv.addWidget(mkw)
         iv.addWidget(hero)
         pg = panel(); gv = QVBoxLayout(pg); gv.setContentsMargins(18, 14, 18, 14)
         gv.addWidget(lbl(t("Evolución del saldo"), rol="titulo"))
@@ -594,6 +606,18 @@ class Control(QMainWindow):
         self.banner.setStyleSheet(f"font-size:13px; color:{TEXT}; border:1px solid {AMBER}; border-left:4px solid {AMBER}; "
                                   f"border-radius:8px; padding:10px 12px")
         self.btn_reanudar.setVisible(bool(s.get("frenado")))
+        for a, (pl, cl) in self.lbl_precios.items():
+            x = (s.get("precios") or {}).get(a)
+            if x:
+                pl.setText(U.A.fmt_precio(x["precio"]))
+                ch = x.get("cambio")
+                cl.setText(t("{v} en 24 h", v=pct(ch, 1, True)) if ch is not None else "")
+                cl.setStyleSheet(f"font-size:12px; color:{color_de(ch)}")
+        if d.get("precios_hora"):
+            seg = max(0, int(time.time() - d["precios_hora"]))
+            self.lbl_precios_upd.setText(t("Binance Futuros, hace {x}", x=f"{seg}{NB}s" if seg < 120 else U.A.fmt_dur(seg)))
+        else:
+            self.lbl_precios_upd.setText(t("No se pudieron leer los precios. Reintentando."))
         self.lbl_saldo.setText(usd(s["saldo"]))
         self.lbl_rend.setText(t("{p} sobre el capital de {c}", p=pct(s["rendimiento_pct"], 2, True), c=usd(s["base"])))
         self.lbl_rend.setStyleSheet(f"font-size:13px; color:{color_de(s['rendimiento_pct'])}")

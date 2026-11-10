@@ -288,6 +288,7 @@ class Servicio:
                 actualizacion=self.actualizacion,
                 actualizaciones_auto=bool(aj.get("instalar_actualizaciones_auto", True)),
                 push=self._estado_push(),
+                precios_hora=self.feed.updated,
             )
             self.cache, self.cache_t = out, time.time()
             return out

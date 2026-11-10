@@ -405,6 +405,20 @@ class ControlApp(App):
             g.add_widget(Texto(tit, 13, GRIS)); g.add_widget(Texto(v, 15, c, negrita=True))
         t.add_widget(g)
         caja.add_widget(t)
+        t = Tarjeta(); t.add_widget(Texto("Mercado ahora", 17, negrita=True))
+        g = GridLayout(cols=3, size_hint_y=None, spacing=dp(6)); g.bind(minimum_height=g.setter("height"))
+        for a in ("BTC", "ETH", "SOL"):
+            x = (s.get("precios") or {}).get(a) or {}
+            px, ch = x.get("precio"), x.get("cambio")
+            g.add_widget(Texto(a, 15, negrita=True))
+            g.add_widget(Texto(num(px, 2 if (px or 0) >= 100 else 4), 15))
+            g.add_widget(Texto(f"{pct(ch, 1, True)} en 24 h" if ch is not None else "", 13, color(ch)))
+        t.add_widget(g)
+        if d.get("precios_hora"):
+            seg = max(0, int(time.time() - d["precios_hora"]))
+            t.add_widget(Texto(f"Binance Futuros, hace {seg} s" if seg < 120 else f"Binance Futuros, hace {seg // 60} min",
+                               12, GRIS))
+        caja.add_widget(t)
         if s.get("frenado"):
             f = Tarjeta()
             f.add_widget(Texto("El bot está frenado por el límite de pérdida: no abre operaciones nuevas.", 14, AMBAR))

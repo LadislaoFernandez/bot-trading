@@ -38,9 +38,14 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.20"
+VERSION = "1.21"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.21", "10/11/2026", [
+        "App de Android con los cambios de la 1.20 (precio actual y resultado si toca el stop en Posiciones).",
+        "Servidor: al reiniciar con posiciones abiertas ya no muestra el aviso de Binance -4067 (no se puede cambiar el "
+        "modo con órdenes abiertas), que era inofensivo.",
+    ]),
     ("1.20", "10/11/2026", [
         "Posiciones: precio actual de cada posición abierta y cuánto ganaría o perdería si toca el stop (las estrategias "
         "no tienen precio objetivo fijo: usan stop móvil).",

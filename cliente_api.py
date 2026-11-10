@@ -58,6 +58,7 @@ class _Conexion(http.client.HTTPSConnection):
 class Cliente:
     def __init__(self, codigo, timeout=15):
         d = leer_codigo(codigo)
+        self.codigo = "".join(codigo.split())  # para pasárselo a otra app (botón Copiar código de conexión)
         self.host, self.puerto, self.token, self.huella = d["h"], int(d["p"]), d["t"], d["f"]
         self.timeout = timeout
 

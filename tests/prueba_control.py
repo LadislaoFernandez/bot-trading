@@ -47,6 +47,7 @@ try:
     assert "USDT" in w.lbl_saldo.text(), w.lbl_saldo.text()
     assert w.datos["servidor"] and w.tab_pos.rowCount() >= 0
     cl = C.Cliente(codigo)
+    assert cl.codigo == "".join(codigo.split()) and w.cliente.codigo == cl.codigo  # botón Copiar código de conexión
     assert cl.accion("piloto", activo=True) == "ok" and cl.estado()["snap"]["auto"] is True
     # asistente para crear el servidor y diálogo para conectar Binance (sin Oracle ni Binance de verdad)
     import asistente

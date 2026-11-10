@@ -470,6 +470,8 @@ class Control(QMainWindow):
         pv = seccion(t("Conexión"))
         self.lbl_con = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_con)
         h = QHBoxLayout(); h.addWidget(boton(t("Cambiar código de conexión"), accion=self._cambiar_codigo))
+        self.btn_copiar_cod = boton(t("Copiar código de conexión"), accion=self._copiar_codigo)
+        h.addWidget(self.btn_copiar_cod)
         h.addWidget(boton(t("Crear un servidor nuevo en Oracle"), accion=self._crear_servidor)); h.addStretch()
         pv.addLayout(h)
 
@@ -565,6 +567,16 @@ class Control(QMainWindow):
 
     def _guardar_capital(self):
         self._accion("capital", t("Capital guardado."), valor=float(self.sp_capital.value()))
+
+    def _copiar_codigo(self):
+        """Para conectar otra app (el celular, otra PC) al mismo servidor: se pega en "Ya tengo un código"."""
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText(self.cliente.codigo)
+        self.btn_copiar_cod.setText(t("Copiado"))
+        QTimer.singleShot(2000, lambda: self.btn_copiar_cod.setText(t("Copiar código de conexión")))
+        U.aviso(self, t("Código de conexión"), t(
+            "Copiado. Pegalo en la otra app (en Android: la pantalla \"Conectar con el servidor\"; en Windows: \"Ya tengo "
+            "un código\"). Guardalo como una contraseña: con este código se controla el bot."))
 
     def _cambiar_codigo(self):
         c = pedir_codigo(self)

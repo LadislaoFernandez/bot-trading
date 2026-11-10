@@ -250,8 +250,8 @@ class ControlApp(App):
         try:
             from kivy.core.clipboard import Clipboard
             Clipboard.copy(texto)
-            boton.text = "Copiado"
-            Clock.schedule_once(lambda dt: setattr(boton, "text", "Copiar"), 2)
+            antes, boton.text = boton.text, "Copiado"
+            Clock.schedule_once(lambda dt: setattr(boton, "text", antes), 2)
         except Exception as e:
             avisar("Copiar", f"No se pudo copiar: {e}")
 
@@ -1062,6 +1062,11 @@ class ControlApp(App):
         t.add_widget(Texto(f"Conectado a {self.cliente.host}:{self.cliente.puerto}. Servidor versión {d.get('version')}, "
                            f"modo {d.get('nombre_modo')}. Claves cargadas: demo {'sí' if cl.get('demo') else 'no'}, real "
                            f"{'sí' if cl.get('real') else 'no'}.", 13))
+        bc = Boton("Copiar código de conexión", lambda: None)
+        bc.bind(on_release=lambda *_: (self._copiar(self.cliente.codigo, bc), avisar("Código de conexión", (
+            "Copiado. Pegalo en la otra app (en Windows: \"Ya tengo un código\"). Guardalo como una contraseña: con "
+            "este código se controla el bot."))))
+        t.add_widget(bc)
         t.add_widget(Boton("Cambiar código de conexión", lambda: self._pantalla_codigo()))
         t.add_widget(Boton("Crear un servidor nuevo en Oracle", self._asistente_inicio))
         caja.add_widget(t)

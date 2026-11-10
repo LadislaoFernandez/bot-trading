@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.24"
+VERSION = "1.25"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.25", "10/11/2026", [
+        "Botón Copiar código de conexión (Windows y Android, en Servidor) para conectar otra app o un celular nuevo al "
+        "mismo servidor. El instalador de Windows también se publica como BotTrading-Setup.exe (link fijo).",
+    ]),
     ("1.24", "10/11/2026", [
         "App de Android: crear el servidor en Oracle desde el celular (mismo asistente que en Windows) y conectar "
         "Binance demo o real desde la pestaña Servidor, sin comandos.",

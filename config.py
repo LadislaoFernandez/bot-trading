@@ -38,9 +38,18 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.21"
+VERSION = "1.22"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.22", "10/11/2026", [
+        "Control de Windows: asistente que crea el servidor gratis en Oracle Cloud con un botón (red, puerto, máquina "
+        "Always Free e instalación del bot), sin comandos ni SSH. Solo hace falta la cuenta de Oracle y una clave de API "
+        "que genera la app.",
+        "Servidor → Cuenta de Binance: conectar Binance demo o real y cambiar de modo desde la app. El servidor genera "
+        "la clave y la parte privada nunca sale de él.",
+        "Avisos al celular para cualquier servidor: los que no tienen Firebase los mandan por el servidor del dueño de "
+        "la app.",
+    ]),
     ("1.21", "10/11/2026", [
         "App de Android con los cambios de la 1.20 (precio actual y resultado si toca el stop en Posiciones).",
         "Servidor: al reiniciar con posiciones abiertas ya no muestra el aviso de Binance -4067 (no se puede cambiar el "

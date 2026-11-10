@@ -31,6 +31,7 @@ import cliente_api as C
 FONDO, PANEL, TEXTO, GRIS = hexc("#0f1115"), hexc("#181b22"), hexc("#e8eaf0"), hexc("#8b90a0")
 VERDE, ROJO, AMBAR, ACENTO = hexc("#2fbf71"), hexc("#e5484d"), hexc("#f5a524"), hexc("#f08a24")
 Window.clearcolor = FONDO
+Window.softinput_mode = "below_target"  # que el teclado no tape el campo donde se escribe
 PIL_BASE = ("BREAKOUT", "TL")
 
 
@@ -147,8 +148,8 @@ class ControlApp(App):
         self.raiz.clear_widgets()
         sv, caja = pagina()
         caja.add_widget(Texto("Conectar con el servidor", 22, negrita=True))
-        caja.add_widget(Texto("Pegá el código de conexión del servidor (empieza con BOT1-). Lo muestra el servidor al "
-                              "instalarlo, o con: venv/bin/python servidor.py codigo", 14, GRIS))
+        caja.add_widget(Texto("Si ya tenés un servidor, pegá su código de conexión (empieza con BOT1-). Lo muestra la app "
+                              "de Windows (Servidor) o el servidor con: venv/bin/python servidor.py codigo", 14, GRIS))
         if error:
             caja.add_widget(Texto(error, 14, ROJO))
         entrada = TextInput(multiline=True, size_hint_y=None, height=dp(140), font_size=sp(14),
@@ -176,6 +177,16 @@ class ControlApp(App):
             self._guardar_codigo(cod)
             self._conectar(cod)
         caja.add_widget(Boton("Conectar", conectar, col=ACENTO))
+        pend = self._leer_json("servidor_pendiente.json") or {}
+        t = Tarjeta()
+        t.add_widget(Texto("¿Todavía no tenés servidor?", 17, negrita=True))
+        t.add_widget(Texto("La app lo crea gratis en Oracle Cloud y deja el bot funcionando. Solo necesitás una cuenta de "
+                           "Oracle (y después una de Binance).", 13, GRIS))
+        if pend.get("ip"):
+            t.add_widget(Boton(f"Terminar de conectar el servidor que se estaba creando ({pend['ip']})",
+                               self._reanudar_servidor, col=ACENTO))
+        t.add_widget(Boton("Crear mi servidor en Oracle", self._asistente_inicio, col=ACENTO if not pend.get("ip") else PANEL))
+        caja.add_widget(t)
         self.raiz.add_widget(sv)
 
     def _conectar(self, cod):
@@ -189,6 +200,381 @@ class ControlApp(App):
             threading.Thread(target=self._sondeo, daemon=True).start()
         if self._avisos_activos():
             self._activar_push()
+
+    # ---------- asistente: crear el servidor en Oracle Cloud desde el celular (oci_api.py + claves de Java)
+    def _arch(self, nombre):
+        return os.path.join(self.user_data_dir, nombre)
+
+    def _leer_json(self, nombre):
+        try:
+            with open(self._arch(nombre), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def _escribir_json(self, nombre, datos):
+        with open(self._arch(nombre), "w", encoding="utf-8") as f:
+            json.dump(datos, f)
+
+    def _clave_oracle(self):
+        """Clave de API de Oracle de este celular (se genera una vez y queda en el almacenamiento privado de la app)."""
+        import base64
+        import cripto_android as K
+        g = self._leer_json("oracle_clave_api.json") or {}
+        if g.get("priv"):
+            priv = base64.b64decode(g["priv"])
+            pub, huella = K.publica_de(priv)
+        else:
+            priv, pub, huella = K.generar_clave_api()
+            self._escribir_json("oracle_clave_api.json", {"priv": base64.b64encode(priv).decode()})
+        return priv, pub, huella
+
+    def _pantalla(self, titulo, texto=""):
+        self.raiz.clear_widgets()
+        sv, caja = pagina()
+        caja.add_widget(Texto(titulo, 22, negrita=True))
+        if texto:
+            caja.add_widget(Texto(texto, 14, GRIS))
+        self.raiz.add_widget(sv)
+        return caja
+
+    def _abrir_url(self, url):
+        if platform != "android":
+            import webbrowser
+            return webbrowser.open(url)
+        from jnius import autoclass
+        Intent, Uri = autoclass("android.content.Intent"), autoclass("android.net.Uri")
+        autoclass("org.kivy.android.PythonActivity").mActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+
+    def _copiar(self, texto, boton):
+        try:
+            from kivy.core.clipboard import Clipboard
+            Clipboard.copy(texto)
+            boton.text = "Copiado"
+            Clock.schedule_once(lambda dt: setattr(boton, "text", "Copiar"), 2)
+        except Exception as e:
+            avisar("Copiar", f"No se pudo copiar: {e}")
+
+    def _texto_fijo(self, texto, alto=130):
+        return TextInput(text=texto, readonly=True, multiline=True, size_hint_y=None, height=dp(alto), font_size=sp(11),
+                         background_color=PANEL, foreground_color=TEXTO)
+
+    def _volver_inicio(self):
+        if self.cliente:
+            self._armar(); self._ir("servidor")
+        else:
+            self._pantalla_codigo()
+
+    def _pantalla_encendida(self, si):
+        """Mientras se crea el servidor, que el celular no apague la pantalla (Android frena las apps en segundo plano)."""
+        if platform != "android":
+            return
+        try:
+            from android.runnable import run_on_ui_thread
+            from jnius import autoclass
+
+            @run_on_ui_thread
+            def poner():
+                w = autoclass("org.kivy.android.PythonActivity").mActivity.getWindow()
+                fl = autoclass("android.view.WindowManager$LayoutParams").FLAG_KEEP_SCREEN_ON
+                w.addFlags(fl) if si else w.clearFlags(fl)
+            poner()
+        except Exception:
+            pass
+
+    def _asistente_inicio(self):
+        caja = self._pantalla("Tu servidor gratis en Oracle Cloud", (
+            "El bot corre en una máquina gratis de Oracle, así funciona las 24 horas aunque cierres la app. La app la "
+            "crea y la deja funcionando sola; vos solo necesitás una cuenta de Oracle Cloud."))
+        caja.add_widget(Texto(
+            "1. Si no tenés cuenta, creala en oracle.com/cloud/free (\"Start for free\"). Oracle pide una tarjeta solo "
+            "para verificar tu identidad: con los recursos Always Free no cobra nada.\n\n"
+            "2. MUY IMPORTANTE: como región de inicio (Home Region) elegí Brazil East (Sao Paulo) o Chile Central "
+            "(Santiago). Binance bloquea los servidores de Estados Unidos y la región no se puede cambiar después.\n\n"
+            "3. Esperá el mail de que la cuenta está lista y entrá a cloud.oracle.com.", 14))
+        caja.add_widget(Boton("Crear cuenta de Oracle", lambda: self._abrir_url("https://www.oracle.com/cloud/free/")))
+        caja.add_widget(Boton("Ya tengo la cuenta: seguir", self._asistente_clave, col=ACENTO))
+        caja.add_widget(Boton("Volver", self._volver_inicio))
+
+    def _asistente_clave(self, error=""):
+        try:
+            priv, pub, huella = self._clave_oracle()
+        except Exception as e:
+            return avisar("Clave de API", f"No se pudo generar la clave: {type(e).__name__}: {e}")
+        caja = self._pantalla("Darle permiso a la app", (
+            "La app necesita una clave de API de Oracle para crear la máquina. La generó recién: agregá esta clave "
+            "pública en tu perfil de Oracle y pegá acá el texto que Oracle te muestra."))
+        caja.add_widget(Texto(
+            "1. En cloud.oracle.com tocá el ícono de tu perfil (arriba a la derecha) → \"My profile\" (Mi perfil) → "
+            "sección \"API keys\" → \"Add API key\".\n"
+            "2. Elegí \"Paste a public key\" (Pegar una clave pública), pegá la clave de abajo y tocá \"Add\".", 14))
+        bc = Boton("Copiar", lambda: None)
+        bc.bind(on_release=lambda *_: self._copiar(pub, bc))
+        caja.add_widget(self._texto_fijo(pub, 150)); caja.add_widget(bc)
+        caja.add_widget(Texto("3. Oracle muestra \"Configuration file preview\": copiá todo ese texto (empieza con "
+                              "[DEFAULT]) y pegalo acá.", 14))
+        if error:
+            caja.add_widget(Texto(error, 14, ROJO))
+        entrada = TextInput(multiline=True, size_hint_y=None, height=dp(150), font_size=sp(12), background_color=PANEL,
+                            foreground_color=TEXTO, hint_text="[DEFAULT]\nuser=ocid1.user.oc1..\nfingerprint=…\n"
+                                                              "tenancy=ocid1.tenancy.oc1..\nregion=sa-saopaulo-1")
+        caja.add_widget(entrada)
+
+        def pegar():
+            try:
+                from kivy.core.clipboard import Clipboard
+                entrada.text = (Clipboard.paste() or "").strip()
+            except Exception:
+                pass
+        caja.add_widget(Boton("Pegar el texto copiado", pegar))
+
+        def crear():
+            import oci_api as O
+            try:
+                cfg = O.leer_configuracion(entrada.text)
+            except ValueError as e:
+                return self._asistente_clave(str(e))
+            if cfg["fingerprint"].lower() != huella:
+                return self._asistente_clave(
+                    "La huella (fingerprint) del texto pegado no coincide con la clave de esta app. Revisá que hayas "
+                    "agregado la clave pública que muestra esta pantalla.")
+            if cfg["region"] not in O.REGIONES_OK:
+                return self._asistente_clave(
+                    f"Tu cuenta de Oracle está en la región {cfg['region']}. Hace falta una cuenta con región de inicio "
+                    "Sao Paulo o Santiago: Binance no funciona desde los servidores de Estados Unidos.")
+            self._asistente_progreso()
+            threading.Thread(target=self._asistente_trabajo, args=(cfg, priv), daemon=True).start()
+        caja.add_widget(Boton("Crear el servidor", crear, col=ACENTO))
+        caja.add_widget(Boton("Volver", self._asistente_inicio))
+
+    def _asistente_progreso(self, ip=None):
+        self._cancelar_asistente = False
+        caja = self._pantalla("Creando tu servidor", (
+            "Tarda unos 15 minutos: Oracle crea la máquina y después el bot se instala solo. Dejá la app abierta (la "
+            "pantalla queda encendida); si se cierra, al volver a abrirla podés seguir esperando."))
+        self.log_asistente = Texto("", 13)
+        caja.add_widget(self.log_asistente)
+        self.caja_asistente = caja
+        self.btn_asistente = Boton("Cancelar", self._cancelar_creacion)
+        caja.add_widget(self.btn_asistente)
+        self._pantalla_encendida(True)
+
+    def _cancelar_creacion(self):
+        self._cancelar_asistente = True
+        self._pantalla_encendida(False)
+        self._volver_inicio()
+
+    @mainthread
+    def _log(self, texto):
+        if getattr(self, "log_asistente", None) is not None:
+            self.log_asistente.text += f"{time.strftime('%H:%M')}  {texto}\n"
+
+    def _asistente_trabajo(self, cfg, priv):
+        import cripto_android as K
+        import oci_api as O
+        try:
+            token = O.nuevo_token()
+            ssh_priv, ssh_pub = K.generar_ssh()
+            self._escribir_json("servidor_pendiente.json", {"token": token})
+            res = O.crear_servidor(O.OCI(cfg, firmar=K.firmador(priv)), O.script_arranque(token), ssh_pub,
+                                   log=self._log, cancelado=lambda: self._cancelar_asistente)
+            self._escribir_json("servidor_pendiente.json", {"token": token, "ip": res["ip"], "forma": res["forma"]})
+            with open(self._arch(f"ssh-{res['ip']}.key"), "w", encoding="utf-8") as f:
+                f.write(ssh_priv)
+            self._esperar_servidor(res["ip"], token, res["forma"])
+        except Exception as e:
+            self._asistente_error(f"{type(e).__name__}: {e}")
+        finally:
+            K.soltar_hilo()
+
+    def _esperar_servidor(self, ip, token, forma=""):
+        """El bot se instala solo en la máquina; cuando responde, la app aprende la huella de su certificado (lo creó el
+        servidor) y arma el código de conexión."""
+        import oci_api as O
+        self._log(f"Máquina lista en {ip}. Instalando el bot (unos 10 minutos)…")
+        fin = time.time() + 30 * 60
+        while not self._cancelar_asistente:
+            try:
+                codigo = O.codigo_conexion(ip, token, O.huella_servidor(ip))
+                C.Cliente(codigo).estado()
+                break
+            except (OSError, C.ErrorConexion, C.ErrorServidor):
+                if time.time() > fin:
+                    return self._asistente_error("El servidor no respondió en 30 minutos. Puede que la instalación "
+                                                 "siga: volvé a abrir la app más tarde y tocá \"Terminar de conectar\".")
+                time.sleep(20)
+        else:
+            return
+        self._guardar_codigo(codigo)
+        try:
+            os.remove(self._arch("servidor_pendiente.json"))
+        except OSError:
+            pass
+        self._asistente_listo(codigo, ip, forma)
+
+    def _reanudar_servidor(self):
+        p = self._leer_json("servidor_pendiente.json") or {}
+        self._asistente_progreso()
+
+        def tarea():
+            try:
+                self._esperar_servidor(p["ip"], p["token"], p.get("forma", ""))
+            except Exception as e:
+                self._asistente_error(f"{type(e).__name__}: {e}")
+        threading.Thread(target=tarea, daemon=True).start()
+
+    @mainthread
+    def _asistente_error(self, texto):
+        self._pantalla_encendida(False)
+        if getattr(self, "caja_asistente", None) is None:
+            return avisar("Servidor", texto)
+        self._log("No se pudo terminar: " + texto)
+        if self.btn_asistente.parent:
+            self.caja_asistente.remove_widget(self.btn_asistente)
+        self.caja_asistente.add_widget(Boton("Volver a intentar", self._asistente_clave, col=ACENTO))
+        self.caja_asistente.add_widget(Boton("Volver", self._volver_inicio))
+
+    @mainthread
+    def _asistente_listo(self, codigo, ip, forma):
+        self._pantalla_encendida(False)
+        self.caja_asistente = None
+        caja = self._pantalla("¡Servidor listo!")
+        caja.add_widget(Texto(
+            f"El bot ya está corriendo en tu servidor de Oracle ({ip}{', máquina ' + forma if forma else ''}), en modo "
+            "simulado: usa precios reales pero todavía no opera. La app quedó conectada.\n\nFalta conectar tu cuenta "
+            "de Binance: es el paso siguiente.", 14))
+
+        def seguir():
+            self._conectar(codigo)
+            self._pantalla_claves("demo")
+        caja.add_widget(Boton("Seguir: conectar Binance", seguir, col=ACENTO))
+
+    # ---------- conectar Binance (demo o real): el servidor genera la clave y nunca la entrega
+    def _pantalla_claves(self, modo):
+        caja = self._pantalla(f"Conectar Binance {'demo' if modo == 'demo' else '(dinero real)'}",
+                              "Pidiéndole la clave al servidor…")
+
+        def tarea():
+            try:
+                r = self.cliente.accion("claves_iniciar", modo=modo)
+                self._pantalla_claves2(modo, r["publica"], r.get("ip") or "?")
+            except (C.ErrorConexion, C.ErrorServidor, KeyError) as e:
+                self._avisar("Binance", str(e))
+        threading.Thread(target=tarea, daemon=True).start()
+        caja.add_widget(Boton("Volver", self._volver_inicio))
+
+    @mainthread
+    def _pantalla_claves2(self, modo, pub, ip):
+        url = {"demo": "https://demo.binance.com/es/my/settings/api-management",
+               "real": "https://www.binance.com/es/my/settings/api-management"}[modo]
+        caja = self._pantalla("Conectar tu cuenta de Binance", (
+            "Tu servidor generó una clave para Binance. La parte privada nunca sale del servidor: a Binance solo le das "
+            "la parte pública, y a la app solo la API key que te devuelve Binance."))
+        caja.add_widget(Texto(f"1. Abrí la gestión de API de Binance{' demo' if modo == 'demo' else ''} → \"Crear API\" "
+                              "→ \"Autogenerada\".\n2. Pegá esta clave pública completa (con las líneas BEGIN y END):",
+                              14))
+        caja.add_widget(Boton("Abrir Binance", lambda: self._abrir_url(url)))
+        bc = Boton("Copiar", lambda: None)
+        bc.bind(on_release=lambda *_: self._copiar(pub, bc))
+        caja.add_widget(self._texto_fijo(pub, 110)); caja.add_widget(bc)
+        if modo == "demo":
+            pasos = ("3. Ponele un nombre y confirmá. En la demo los permisos ya vienen listos (no se pueden cambiar) y "
+                     "la restricción de IP no hace falta.\n4. Copiá la API Key que te muestra Binance y pegala acá:")
+        else:
+            pasos = ("3. Ponele un nombre y confirmá.\n4. En la clave nueva tocá \"Editar restricciones\": activá solo "
+                     "\"Habilitar futuros\" (sin retiros) y en \"Restringir el acceso a IP de confianza\" agregá la IP de "
+                     f"tu servidor: {ip}. Guardá. Sin esto el bot no deja operar con dinero real.\n"
+                     "5. Copiá la API Key que te muestra Binance y pegala acá:")
+        caja.add_widget(Texto(pasos, 14))
+        entrada = TextInput(multiline=False, size_hint_y=None, height=dp(44), font_size=sp(13), hint_text="API Key",
+                            background_color=PANEL, foreground_color=TEXTO)
+        caja.add_widget(entrada)
+
+        def pegar():
+            try:
+                from kivy.core.clipboard import Clipboard
+                entrada.text = "".join((Clipboard.paste() or "").split())
+            except Exception:
+                pass
+        caja.add_widget(Boton("Pegar la API Key copiada", pegar))
+        res = Texto("", 14)
+        caja.add_widget(res)
+
+        def probar():
+            key = "".join(entrada.text.split())
+            if not key:
+                return
+            res.text, res.color = "Probando la conexión con Binance…", GRIS
+
+            def tarea():
+                try:
+                    r = self.cliente.accion("claves_completar", modo=modo, api_key=key)
+                    self._claves_ok(modo, r, res)
+                except (C.ErrorConexion, C.ErrorServidor) as e:
+                    self._texto_en(res, f"No funcionó: {e}", ROJO)
+            threading.Thread(target=tarea, daemon=True).start()
+        caja.add_widget(Boton("Probar y guardar", probar, col=ACENTO))
+        caja.add_widget(Boton("Cancelar", self._volver_inicio))
+
+    @mainthread
+    def _texto_en(self, label, texto, col=TEXTO):
+        label.text, label.color = texto, col
+
+    @mainthread
+    def _claves_ok(self, modo, r, res):
+        s = r.get("saldo") or {}
+        txt = f"Conexión OK. Saldo en futuros: {num(s.get('total', 0))} USDT."
+        p = r.get("permisos")
+        if p and (p.get("retiros") or not p.get("ip") or not p.get("futuros")):
+            res.text, res.color = (txt + "\n\nPara dinero real la clave tiene que tener futuros habilitados, retiros "
+                                   "deshabilitados y restricción de IP. Corregilo en Binance y volvé a probar."), AMBAR
+            return
+        res.text, res.color = txt, VERDE
+        if modo == "demo":
+            preguntar("Binance conectado", txt + "\n\n¿Pasar el bot a modo demo ahora? Va a operar la cuenta demo de "
+                                                 "Binance.", "Sí, cambiar", lambda: self._cambiar_modo("demo"),
+                      self._volver_inicio)
+        else:
+            self._confirmar_real(txt)
+
+    def _confirmar_real(self, txt):
+        caja = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
+        caja.add_widget(Texto(txt + "\n\nVas a operar con DINERO REAL y podés perder dinero. Revisá el capital del modo "
+                                    "real en Servidor.\n\nEscribí REAL para pasar a dinero real ahora:", 14))
+        e = TextInput(multiline=False, size_hint_y=None, height=dp(44), font_size=sp(15))
+        caja.add_widget(e)
+        fila = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))
+        pop = Popup(title="Dinero real", content=caja, size_hint=(0.94, None), height=dp(420), auto_dismiss=False)
+
+        def ok():
+            pop.dismiss()
+            if e.text.strip() == "REAL":
+                self._cambiar_modo("real", "REAL")
+            else:
+                self._volver_inicio()
+        fila.add_widget(Boton("Después", lambda: (pop.dismiss(), self._volver_inicio())))
+        fila.add_widget(Boton("Confirmar", ok, col=ROJO))
+        caja.add_widget(fila)
+        pop.open()
+
+    def _cambiar_modo(self, modo, confirmar=None):
+        datos = {"modo": modo}
+        if confirmar:
+            datos["confirmar"] = confirmar
+
+        def tarea():
+            try:
+                self.cliente.accion("cambiar_modo", **datos)
+                self._avisar("Modo cambiado", "Listo. El servidor se reinicia para aplicar el cambio (menos de un "
+                                              "minuto).")
+            except (C.ErrorConexion, C.ErrorServidor) as e:
+                self._avisar("Modo", str(e))
+            self._volver_en_hilo()
+        threading.Thread(target=tarea, daemon=True).start()
+
+    @mainthread
+    def _volver_en_hilo(self):
+        self._volver_inicio()
 
     # ---------- notificaciones de operaciones: push de Firebase (llegan con la app cerrada, como Instagram)
     def _avisos_activos(self):
@@ -676,8 +1062,19 @@ class ControlApp(App):
         t.add_widget(Texto(f"Conectado a {self.cliente.host}:{self.cliente.puerto}. Servidor versión {d.get('version')}, "
                            f"modo {d.get('nombre_modo')}. Claves cargadas: demo {'sí' if cl.get('demo') else 'no'}, real "
                            f"{'sí' if cl.get('real') else 'no'}.", 13))
-        t.add_widget(Texto("Las claves de Binance y el modo se cambian en el servidor, por seguridad.", 12, GRIS))
         t.add_widget(Boton("Cambiar código de conexión", lambda: self._pantalla_codigo()))
+        t.add_widget(Boton("Crear un servidor nuevo en Oracle", self._asistente_inicio))
+        caja.add_widget(t)
+
+        t = Tarjeta(); t.add_widget(Texto("Cuenta de Binance", 17, negrita=True))
+        t.add_widget(Texto("El servidor genera la clave y la guarda; la app solo le pasa la API key que te da Binance. "
+                           "Empezá por la demo (dinero de prueba).", 13, GRIS))
+        t.add_widget(Boton("Conectar Binance demo", lambda: self._pantalla_claves("demo"), col=ACENTO))
+        t.add_widget(Boton("Conectar Binance real", lambda: self._pantalla_claves("real")))
+        if d.get("modo") != "simulado":
+            t.add_widget(Boton("Volver a modo simulado", lambda: preguntar(
+                "Modo", "¿Volver a modo simulado? El bot deja de operar en Binance (las posiciones abiertas siguen "
+                        "abiertas allá).", "Sí", lambda: self._cambiar_modo("simulado"))))
         caja.add_widget(t)
 
         t = Tarjeta(); t.add_widget(Texto("Riesgo", 17, negrita=True))

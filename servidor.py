@@ -587,7 +587,10 @@ def cmd_preparar(a):
     if not ip:
         print("No pude averiguar la IP pública. Volvé a correrlo con --ip <la IP pública de tu servidor>"); sys.exit(1)
     if c.get("token") and not a.nuevo and not c.get("ip"):
-        c.update(ip=ip, puerto=c.get("puerto") or a.puerto); guardar_config(c)  # instalado por el asistente de Windows
+        c.update(ip=ip, puerto=c.get("puerto") or a.puerto)  # instalado por el asistente de las apps
+        if not c.get("huella") or not os.path.exists(CERT):
+            c["huella"] = crear_certificado(ip)  # asistente de Android: el certificado lo crea el servidor
+        guardar_config(c)
         print("Servidor preparado por el asistente: IP guardada.")
     elif c.get("token") and not a.nuevo:
         print("El servidor ya estaba preparado. Para cambiar el token y el certificado (las apps se vuelven a conectar con "

@@ -42,6 +42,8 @@ VERSION = "1.24"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
     ("1.24", "10/11/2026", [
+        "App de Android: crear el servidor en Oracle desde el celular (mismo asistente que en Windows) y conectar "
+        "Binance demo o real desde la pestaña Servidor, sin comandos.",
         "Conectar Binance: textos corregidos (la opción se llama Autogenerada; en la demo los permisos ya vienen listos y "
         "la restricción de IP no hace falta; en la cuenta real se configura en Editar restricciones).",
     ]),

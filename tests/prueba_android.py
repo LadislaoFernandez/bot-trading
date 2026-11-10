@@ -40,17 +40,24 @@ try:
     M.ControlApp._leer_codigo = lambda self: codigo
     app = M.ControlApp()
     pasos = ["resumen", "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
-             "resumen"]
+             # asistente de Oracle y conexión de Binance (pantallas; la creación real se prueba en correr_pruebas)
+             lambda: app._pantalla_codigo(), lambda: app._asistente_inicio(), lambda: app._asistente_clave(),
+             lambda: app._asistente_clave("error de prueba"), lambda: app._asistente_progreso(),
+             lambda: app._log("línea de prueba"), lambda: app._asistente_error("falla de prueba"),
+             lambda: app._asistente_listo(codigo, "127.0.0.1", "VM.Standard.E2.1.Micro"),
+             lambda: app._pantalla_claves("demo"), lambda: None, lambda: app._pantalla_claves("real"), lambda: None,
+             lambda: app._volver_inicio(), "resumen"]
 
     def paso(dt):
         if not app.datos:
             return
         if pasos:
-            app._ir(pasos.pop(0))
+            p = pasos.pop(0)
+            p() if callable(p) else app._ir(p)
         else:
             app.stop()
     Clock.schedule_interval(paso, 1.5)
-    Clock.schedule_once(lambda dt: app.stop(), 60)
+    Clock.schedule_once(lambda dt: app.stop(), 90)
     app.run()
     assert app.datos and not app.error, app.error
     assert not errores, errores

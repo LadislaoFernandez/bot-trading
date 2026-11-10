@@ -1,4 +1,4 @@
-"""Crea el servidor del bot en Oracle Cloud (gratis) desde la app de Windows, con la API de Oracle.
+"""Crea el servidor del bot en Oracle Cloud (gratis) desde las apps de control (Windows y Android), con la API de Oracle.
 
 El usuario solo crea su cuenta de Oracle y agrega una "clave de API" (la pública la genera la app). Con eso la app
 crea la red, abre el puerto de las apps, lanza una máquina Always Free y le pasa un script de arranque (cloud-init) que
@@ -100,21 +100,51 @@ def codigo_conexion(ip, token, huella, puerto=PUERTO):
     return "BOT1-" + base64.urlsafe_b64encode(json.dumps(datos, separators=(",", ":")).encode()).decode().rstrip("=")
 
 
-def script_arranque(token, cert_pem, clave_pem, ssh_pub=None):
-    """cloud-init: deja el token y el certificado en la carpeta del bot y corre el instalador como el usuario ubuntu."""
-    cfg = json.dumps({"token": token, "huella": hashlib.sha256(_der(cert_pem)).hexdigest(), "puerto": PUERTO})
-    return "\n".join([
-        "#!/bin/bash",
-        "# Instalación del bot de trading (la generó la app de control de Windows)",
-        "install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/bot-trading",
-        "cd /home/ubuntu/bot-trading",
-        "cat > servidor_config.json <<'FIN_CONFIG'", cfg, "FIN_CONFIG",
-        "cat > servidor.crt <<'FIN_CERT'", cert_pem.strip(), "FIN_CERT",
-        "cat > servidor.key <<'FIN_CLAVE'", clave_pem.strip(), "FIN_CLAVE",
-        "chown ubuntu:ubuntu servidor_config.json servidor.crt servidor.key",
-        "chmod 600 servidor_config.json servidor.key",
+def script_arranque(token, cert_pem=None, clave_pem=None, ssh_pub=None):
+    """cloud-init: deja el token (y el certificado, si la app lo generó) en la carpeta del bot y corre el instalador
+    como el usuario ubuntu. Sin certificado (app de Android) el servidor crea el suyo al instalarse y la app aprende su
+    huella en la primera conexión."""
+    cfg = {"token": token, "puerto": PUERTO}
+    lineas = ["#!/bin/bash",
+              "# Instalación del bot de trading (la generó la app de control)",
+              "install -d -o ubuntu -g ubuntu -m 700 /home/ubuntu/bot-trading",
+              "cd /home/ubuntu/bot-trading"]
+    if cert_pem:
+        cfg["huella"] = hashlib.sha256(_der(cert_pem)).hexdigest()
+        lineas += ["cat > servidor_config.json <<'FIN_CONFIG'", json.dumps(cfg), "FIN_CONFIG",
+                   "cat > servidor.crt <<'FIN_CERT'", cert_pem.strip(), "FIN_CERT",
+                   "cat > servidor.key <<'FIN_CLAVE'", clave_pem.strip(), "FIN_CLAVE",
+                   "chown ubuntu:ubuntu servidor_config.json servidor.crt servidor.key",
+                   "chmod 600 servidor_config.json servidor.key"]
+    else:
+        lineas += ["cat > servidor_config.json <<'FIN_CONFIG'", json.dumps(cfg), "FIN_CONFIG",
+                   "chown ubuntu:ubuntu servidor_config.json", "chmod 600 servidor_config.json"]
+    return "\n".join(lineas + [
         f"sudo -u ubuntu -H bash -lc 'cd ~ && curl -fsSL {INSTALADOR} | bash' > /var/log/bot-instalacion.log 2>&1",
         ""])
+
+
+def huella_servidor(ip, puerto=PUERTO, timeout=10):
+    """Huella SHA-256 del certificado que presenta el servidor (primera conexión del asistente de Android, que no
+    genera el certificado). No manda nada: solo mira el certificado."""
+    import socket
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+    with socket.create_connection((ip, puerto), timeout=timeout) as s:
+        with ctx.wrap_socket(s) as t:
+            return hashlib.sha256(t.getpeercert(binary_form=True)).hexdigest()
+
+
+def _abrir_seguro(req):
+    """HTTPS verificado; en Android no hay certificados del sistema para Python, así que usa los de certifi."""
+    import ssl
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+    return urllib.request.urlopen(req, timeout=60, context=ctx)
 
 
 def _der(cert_pem):
@@ -141,19 +171,22 @@ def leer_configuracion(texto):
 
 # ---------------------------------------------------------------- cliente de la API (firma HTTP de Oracle)
 class OCI:
-    def __init__(self, cfg, clave_privada_pem, abrir=None):
-        from cryptography.hazmat.primitives import serialization
+    def __init__(self, cfg, clave_privada_pem=None, abrir=None, firmar=None):
+        """firmar(bytes) -> firma RSA-SHA256 PKCS#1 v1.5; en Android la hace Java (sin la librería cryptography)."""
         self.cfg = cfg
-        self.clave = serialization.load_pem_private_key(clave_privada_pem.encode(), None)
+        if firmar is None:
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import padding
+            clave = serialization.load_pem_private_key(clave_privada_pem.encode(), None)
+            firmar = lambda b: clave.sign(b, padding.PKCS1v15(), hashes.SHA256())  # noqa: E731
+        self.firmar = firmar
         self.region = cfg["region"]
         self.iaas = f"https://iaas.{self.region}.oraclecloud.com/20160918"
         self.identity = f"https://identity.{self.region}.oraclecloud.com/20160918"
-        self.abrir = abrir or (lambda req: urllib.request.urlopen(req, timeout=60))
+        self.abrir = abrir or _abrir_seguro
 
     def cabeceras(self, metodo, url, cuerpo=None, fecha=None):
         """Cabeceras firmadas de una petición (separado para poder probarlo)."""
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
         u = urllib.parse.urlsplit(url)
         destino = u.path + (f"?{u.query}" if u.query else "")
         h = {"date": fecha or formatdate(usegmt=True), "host": u.netloc}
@@ -165,7 +198,7 @@ class OCI:
             nombres += ["content-length", "content-type", "x-content-sha256"]
         texto = "\n".join(f"{n}: {metodo.lower()} {destino}" if n == "(request-target)" else f"{n}: {h[n]}"
                           for n in nombres)
-        firma = base64.b64encode(self.clave.sign(texto.encode(), padding.PKCS1v15(), hashes.SHA256())).decode()
+        firma = base64.b64encode(self.firmar(texto.encode())).decode()
         clave_id = f"{self.cfg['tenancy']}/{self.cfg['user']}/{self.cfg['fingerprint']}"
         h["authorization"] = (f'Signature version="1",keyId="{clave_id}",algorithm="rsa-sha256",'
                               f'headers="{" ".join(nombres)}",signature="{firma}"')

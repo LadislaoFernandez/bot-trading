@@ -5,7 +5,7 @@ package.domain = io.github.ladislaofernandez
 source.dir = .
 source.include_exts = py,png,json
 version = 1.0
-requirements = python3,kivy==2.3.0
+requirements = python3,kivy==2.3.0,certifi
 orientation = portrait
 fullscreen = 0
 icon.filename = %(source.dir)s/icono.png

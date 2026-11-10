@@ -464,7 +464,39 @@ def prueba_oci():
         assert False
     except ValueError:
         pass
-    print("10) asistente de Oracle: firma de la API, script de arranque y creación del servidor (con Ampere sin lugar)")
+    # asistente de Android: firma hecha afuera (Java en el celular), script sin certificado y el servidor crea el suyo
+    import argparse
+    import hashlib
+    import socket
+    import ssl
+    import threading
+    sys.path.append(os.path.join(RAIZ, "android"))
+    import cripto_android as KA
+    pa, _pub, fpa = KA.generar_clave_api()
+    cfga = dict(cfg, fingerprint=fpa)
+    O.OCI(cfga, firmar=KA.firmador(pa), abrir=abrir).get("/vcns", compartmentId="x")
+    sa = O.script_arranque("TOKEN-ANDROID")
+    assert "TOKEN-ANDROID" in sa and "servidor.crt" not in sa and "huella" not in sa
+    import servidor as SV
+    d = carpeta_nueva()
+    SV.guardar_config({"token": "TOKEN-ANDROID", "puerto": 8443})
+    SV.cmd_preparar(argparse.Namespace(ip="127.0.0.1", nuevo=False, puerto=8443))
+    c = SV.leer_config()
+    assert c["token"] == "TOKEN-ANDROID" and c["ip"] == "127.0.0.1" and os.path.exists(os.path.join(d, "servidor.crt"))
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain("servidor.crt", "servidor.key")
+    ls = socket.socket(); ls.bind(("127.0.0.1", 0)); ls.listen(1)
+
+    def atender():
+        con, _ = ls.accept()
+        try:
+            ctx.wrap_socket(con, server_side=True).close()
+        except OSError:
+            pass
+    threading.Thread(target=atender, daemon=True).start()
+    assert O.huella_servidor("127.0.0.1", ls.getsockname()[1]) == c["huella"]
+    ls.close()
+    print("10) asistente de Oracle: firma de la API, script de arranque y creación del servidor (con Ampere sin lugar; "
+          "también el de Android, con certificado creado por el servidor)")
 
 
 def C_leer(cod):

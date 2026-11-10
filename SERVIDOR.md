@@ -71,10 +71,21 @@ servidor se reinicia. Se actualiza solo desde GitHub, igual que la app.
 Las apps solo muestran y controlan: el bot corre en el servidor, así que podés cerrarlas cuando quieras.
 
 La app de Android además **te avisa con una notificación cada vez que el bot abre o cierra una operación**, aunque esté
-cerrada. La primera vez Android pide permiso para mostrar notificaciones: aceptalo. Mientras los avisos están encendidos
-queda una notificación fija "Avisos de operaciones" (Android la exige para no cortar el servicio). Se apagan en
-*Control → Notificaciones*. Si reiniciás el celular, abrí la app una vez para que vuelvan a funcionar. Si alguna marca
-de celular corta los avisos, en *Ajustes → Batería* poné la app como "Sin restricciones".
+cerrada y con la pantalla apagada. Los avisos los manda el servidor por **Firebase Cloud Messaging** (el sistema de
+Google que usan Instagram o WhatsApp), así que no hace falta tocar ajustes de batería. Para eso:
+
+1. Creá un proyecto gratis en <https://console.firebase.google.com> y agregale una app de Android con el paquete
+   `io.github.ladislaofernandez.botcontrol` (su `google-services.json` va en `android/` del repositorio).
+2. En *Configuración del proyecto → Cuentas de servicio → Generar nueva clave privada*, bajá la clave y copiala al
+   servidor como `firebase-servidor.json` (es secreta):
+
+   ```
+   scp -i E:\Claude\oracle\bot-trading.key firebase-servidor.json ubuntu@IP_DEL_SERVIDOR:bot-trading/
+   ```
+3. Abrí la app del celular (acepta el permiso de notificaciones) y probá desde el servidor:
+   `cd ~/bot-trading && venv/bin/python servidor.py probar_push`
+
+Los avisos se encienden y apagan en *Control → Notificaciones* de la app.
 
 ## 6. Cargar las claves de Binance (en el servidor)
 

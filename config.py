@@ -38,13 +38,15 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.19"
+VERSION = "1.20"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
-    ("1.19", "10/11/2026", [
-        "Control de Windows y app de Android: precio actual de BTC, ETH y SOL y su cambio en 24 horas en Resumen.",
+    ("1.20", "10/11/2026", [
         "Posiciones: precio actual de cada posición abierta y cuánto ganaría o perdería si toca el stop (las estrategias "
         "no tienen precio objetivo fijo: usan stop móvil).",
+    ]),
+    ("1.19", "10/11/2026", [
+        "Control de Windows y app de Android: precio actual de BTC, ETH y SOL y su cambio en 24 horas en Resumen.",
     ]),
     ("1.18", "10/11/2026", [
         "Avisos al celular por Firebase Cloud Messaging (como Instagram): el servidor los manda y llegan aunque la app "

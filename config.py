@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.23"
+VERSION = "1.24"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.24", "10/11/2026", [
+        "Conectar Binance: textos corregidos (la opción se llama Autogenerada; en la demo los permisos ya vienen listos y "
+        "la restricción de IP no hace falta; en la cuenta real se configura en Editar restricciones).",
+    ]),
     ("1.23", "10/11/2026", [
         "Asistente de Oracle: si Oracle no tiene lugar para máquinas gratis, reintenta solo cada minuto (hasta 2 horas) "
         "en lugar de fallar.",

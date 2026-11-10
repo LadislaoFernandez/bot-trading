@@ -619,10 +619,13 @@ def cmd_claves(a):
         par = CL.cargar_privada_pendiente(m)
         if not par:
             priv, pub = CL.generar_ed25519(); CL.guardar_privada_pendiente(m, priv, pub); par = (priv, pub)
-        print("\nEn Binance → Gestión de API → Crear API → 'Generada por el usuario' (Ed25519), pegá esta clave pública:\n")
+        print("\nEn Binance → Gestión de API → Crear API → 'Autogenerada', pegá esta clave pública:\n")
         print(par[1])
-        print("Permisos: SOLO futuros (sin retiros). Restringí el acceso a la IP de este servidor: "
-              f"{leer_config().get('ip') or ip_publica() or '(tu IP pública)'}\n")
+        if m == "demo":
+            print("En la demo los permisos ya vienen listos y la restricción de IP no hace falta.\n")
+        else:
+            print("Después, en 'Editar restricciones': SOLO futuros (sin retiros) y acceso restringido a la IP de este "
+                  f"servidor: {leer_config().get('ip') or ip_publica() or '(tu IP pública)'}\n")
         key = getpass.getpass("Pegá la API key que te muestra Binance (no se ve al escribir): ").strip()
         if not key:
             print("Cancelado."); return

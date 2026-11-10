@@ -97,8 +97,9 @@ venv/bin/python servidor.py claves demo
 ```
 
 1. Elegí **1 (Ed25519)**. El servidor muestra una clave pública.
-2. En Binance Demo → *API Management* → *Create API* → **Self-generated (Ed25519)**, pegá esa clave pública.
-3. Permisos: **solo futuros**, sin retiros. En *Restrict access to trusted IPs only*, poné la **IP del servidor**.
+2. En Binance Demo → *Gestión de API* → *Crear API* → **Autogenerada**, pegá esa clave pública.
+3. En la demo los permisos ya vienen listos y la restricción de IP no hace falta. En la cuenta real, después de crearla,
+   en *Editar restricciones*: **solo futuros**, sin retiros, y acceso restringido a la **IP del servidor**.
 4. Copiá la *API Key* que te da Binance y pegala en el servidor (no se ve al escribir).
 
 Después:

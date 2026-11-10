@@ -232,20 +232,27 @@ class DialogoClaves(QDialog):
         v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 20); v.setSpacing(10)
         v.addWidget(lbl(t("Conectar tu cuenta de Binance"), size=20, weight=600))
         v.addWidget(lbl(t(
-            "Tu servidor generó una clave para Binance. La parte privada nunca sale del servidor; a Binance solo le "
+            "Tu servidor generó una clave para Binance. La parte privada nunca sale del servidor: a Binance solo le "
             "das la parte pública, y a la app solo la API key que te devuelve Binance."), size=13, wrap=True))
         v.addWidget(lbl(t(
-            "1. Abrí la gestión de API de Binance{d} → \"Crear API\" → \"Generada por el usuario\" (Self-generated).\n"
+            "1. Abrí la gestión de API de Binance{d} → \"Crear API\" → \"Autogenerada\".\n"
             "2. Pegá esta clave pública completa (con las líneas BEGIN y END):",
             d=" demo" if modo == "demo" else ""), size=13, wrap=True))
         h = QHBoxLayout()
         h.addWidget(boton(t("Abrir Binance"), accion=lambda: webbrowser.open(URL_BINANCE_API[modo]))); h.addStretch()
         bc = boton(t("Copiar")); bc.clicked.connect(lambda: _copiar(self.pub, bc)); h.addWidget(bc)
         v.addLayout(h); v.addWidget(_texto_copiable(self.pub, 96))
-        v.addWidget(lbl(t(
-            "3. Ponele un nombre, confirmá y en los permisos activá solo \"Habilitar futuros\" (sin retiros).\n"
-            "4. En \"Restringir el acceso a IP de confianza\" agregá la IP de tu servidor: {ip}\n"
-            "5. Copiá la API Key que te muestra Binance y pegala acá:", ip=ip), size=13, wrap=True))
+        if modo == "demo":
+            pasos = t("3. Ponele un nombre y confirmá. En la demo los permisos ya vienen listos (no se pueden cambiar) "
+                      "y la restricción de IP no hace falta.\n"
+                      "4. Copiá la API Key que te muestra Binance y pegala acá:")
+        else:
+            pasos = t("3. Ponele un nombre y confirmá.\n"
+                      "4. En la clave nueva tocá \"Editar restricciones\": activá solo \"Habilitar futuros\" (sin "
+                      "retiros) y en \"Restringir el acceso a IP de confianza\" agregá la IP de tu servidor: {ip}. "
+                      "Guardá. Sin esto el bot no deja operar con dinero real.\n"
+                      "5. Copiá la API Key que te muestra Binance y pegala acá:", ip=ip)
+        v.addWidget(lbl(pasos, size=13, wrap=True))
         self.e_key = QLineEdit(); self.e_key.setPlaceholderText("API Key"); v.addWidget(self.e_key)
         self.lbl_res = lbl("", size=13, wrap=True); v.addWidget(self.lbl_res)
         v.addStretch()

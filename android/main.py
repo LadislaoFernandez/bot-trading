@@ -110,6 +110,13 @@ def avisar(titulo, texto):
 class ControlApp(App):
     title = "Bot de trading"
 
+    def on_pause(self):
+        return True  # al salir de la app, Android la deja en pausa en lugar de cerrarla
+
+    def on_resume(self):
+        if getattr(self, "cliente", None) and getattr(self, "datos", None):
+            Clock.schedule_once(lambda dt: self._pintar(), 0.3)  # por ejemplo, al volver de los ajustes de batería
+
     def build(self):
         self.archivo = os.path.join(self.user_data_dir, "codigo.json")
         self.cliente, self.datos, self.error, self.pestana = None, None, None, "resumen"
@@ -201,11 +208,39 @@ class ControlApp(App):
                 request_permissions([Permission.POST_NOTIFICATIONS])  # Android 13 o más: pide permiso una vez
         except Exception:
             pass
+        if self._sin_ahorro_bateria() is False and not getattr(self, "_pidio_ahorro", False):
+            self._pidio_ahorro = True
+            Clock.schedule_once(lambda dt: self._pedir_sin_ahorro(), 2)
         try:
             from jnius import autoclass
             act = autoclass("org.kivy.android.PythonActivity").mActivity
             autoclass(SERVICIO).start(act, "", "Bot de trading", "Avisos de operaciones encendidos",
                                       json.dumps({"carpeta": self.user_data_dir}))
+        except Exception as e:
+            self.error_avisos = f"{type(e).__name__}: {e}"
+
+    # ---------- ahorro de batería: sin la excepción, Android pausa los avisos con la pantalla apagada
+    def _sin_ahorro_bateria(self):
+        """True si Android ya no le aplica el ahorro de batería a la app (None si no se puede saber)."""
+        if platform != "android":
+            return None
+        try:
+            from jnius import autoclass, cast
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            pm = cast("android.os.PowerManager", act.getSystemService(autoclass("android.content.Context").POWER_SERVICE))
+            return bool(pm.isIgnoringBatteryOptimizations(act.getPackageName()))
+        except Exception:
+            return None
+
+    def _pedir_sin_ahorro(self):
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            Intent, Uri = autoclass("android.content.Intent"), autoclass("android.net.Uri")
+            act.startActivity(Intent("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+                                     Uri.parse("package:" + act.getPackageName())))
         except Exception as e:
             self.error_avisos = f"{type(e).__name__}: {e}"
 
@@ -514,6 +549,16 @@ class ControlApp(App):
                            "cerrada. Android muestra una notificación fija \"Avisos\" mientras está encendido. Si "
                            "reiniciás el celular, abrí la app una vez para que vuelva a avisar.", 13, GRIS))
         self._fila_switch(t, "Avisar operaciones", self._avisos_activos(), self._cambiar_avisos)
+        sin = self._sin_ahorro_bateria()
+        if sin is True:
+            t.add_widget(Texto("Ahorro de batería: la app está excluida, los avisos llegan con la pantalla apagada.", 13,
+                               VERDE))
+        elif sin is False:
+            t.add_widget(Texto("Ahorro de batería: la app NO está excluida. Con la pantalla apagada Android pausa los "
+                               "avisos y llegan recién cuando abrís la app.", 13, AMBAR, negrita=True))
+            t.add_widget(Boton("Permitir que funcione en segundo plano", self._pedir_sin_ahorro, col=ACENTO))
+        t.add_widget(Texto("En Samsung, Xiaomi, Motorola y otras marcas, además: Ajustes → Apps → Bot de trading → "
+                           "Batería → \"Sin restricciones\" (y en Xiaomi, \"Inicio automático\" activado).", 12, GRIS))
         if getattr(self, "error_avisos", None):
             t.add_widget(Texto("No se pudieron encender: " + self.error_avisos[:160], 13, ROJO))
         caja.add_widget(t)

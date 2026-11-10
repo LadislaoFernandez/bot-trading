@@ -92,14 +92,32 @@ def _anotar_error(texto):
         pass
 
 
+def _mantener_despierto():
+    """Sin esto, con la pantalla apagada Android duerme el procesador (Doze) y el servicio deja de consultar al servidor
+    hasta que se abre la app. Funciona del todo si la app está excluida del ahorro de batería (la app lo pide)."""
+    try:
+        PowerManager = autoclass("android.os.PowerManager")
+        pm = cast(PowerManager, svc.getSystemService(Context.POWER_SERVICE))
+        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, JString("BotTrading:avisos"))
+        wl.setReferenceCounted(False)
+        wl.acquire()
+        return wl
+    except Exception:
+        _anotar_error("wakelock: " + traceback.format_exc())
+        return None
+
+
 def main():
     if hasattr(svc, "setAutoRestartService"):
         svc.setAutoRestartService(True)
+    wl = _mantener_despierto()
     cliente, codigo = None, None
     while True:
         if not AV.leer_json(ARCH_AJUSTES, {}).get("activo", True):
             if hasattr(svc, "setAutoRestartService"):
                 svc.setAutoRestartService(False)
+            if wl is not None and wl.isHeld():
+                wl.release()
             svc.stopSelf()
             return
         try:

@@ -13,7 +13,7 @@ fullscreen = 0
 icon.filename = %(source.dir)s/icono.png
 presplash.filename = %(source.dir)s/icono.png
 android.presplash_color = #0f1115
-android.permissions = INTERNET, FOREGROUND_SERVICE, POST_NOTIFICATIONS
+android.permissions = INTERNET, FOREGROUND_SERVICE, POST_NOTIFICATIONS, WAKE_LOCK, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 # 33 y no 34: con 34 Android 14 exige declarar el tipo de servicio en primer plano, y esta versión de
 # python-for-android no lo permite. Para una app que se instala con el APK (no desde Play) no cambia nada.
 android.api = 33

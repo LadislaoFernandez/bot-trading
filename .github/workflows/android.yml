@@ -84,7 +84,7 @@ jobs:
         run: |
           m=$(find android/.buildozer -path "*dists*" -name AndroidManifest.xml | head -1)
           echo "$m"
-          grep -q "ServiceAvisos" "$m" && grep -q "FOREGROUND_SERVICE" "$m" && grep -q "POST_NOTIFICATIONS" "$m"
+          grep -q "ServiceAvisos" "$m" && grep -q "FOREGROUND_SERVICE" "$m" && grep -q "POST_NOTIFICATIONS" "$m" && grep -q "WAKE_LOCK" "$m" && grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$m"
           grep -o 'targetSdkVersion="[0-9]*"' "$m" || true
       - name: Revisar la firma del APK
         run: |

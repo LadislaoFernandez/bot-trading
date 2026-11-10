@@ -19,7 +19,9 @@ ARCH_CLAVE = "firebase-servidor.json"
 ARCH_TOKENS = "push_tokens.json"
 ARCH_VISTOS = "push_vistos.json"
 CANAL = "operaciones"  # canal de notificaciones que crea la app de Android
+RELAY_POR_HORA = 120  # avisos por hora que acepta el intermediario de cada servidor
 _lock = threading.Lock()
+_fb_relay = None
 
 
 def _b64(b):
@@ -127,6 +129,74 @@ class Firebase:
             if e.code == 404 or "UNREGISTERED" in txt or ("INVALID_ARGUMENT" in txt and "token" in txt.lower()):
                 return "invalido"
             return f"HTTP {e.code}: {txt[:200]}"
+
+
+class Relay:
+    """Manda los avisos por el servidor del dueño del repositorio (relay.py), que sí tiene la clave de Firebase."""
+
+    def __init__(self, info):
+        self.url, self.huella = info["url"].rstrip("/"), info["huella"].lower()
+
+    def enviar(self, token, titulo, cuerpo, etiqueta=None):
+        import hashlib
+        import http.client
+        import ssl
+        u = urllib.parse.urlparse(self.url)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE  # se verifica por huella, como las apps
+        con = http.client.HTTPSConnection(u.hostname, u.port or 443, timeout=20, context=ctx)
+        try:
+            con.connect()
+            if hashlib.sha256(con.sock.getpeercert(binary_form=True)).hexdigest() != self.huella:
+                return "el intermediario no tiene el certificado esperado"
+            cuerpo_json = json.dumps({"token": token, "titulo": titulo, "cuerpo": cuerpo, "etiqueta": etiqueta})
+            con.request("POST", "/api/relay", body=cuerpo_json, headers={"Content-Type": "application/json"})
+            r = con.getresponse()
+            d = json.loads(r.read() or b"{}")
+            return d.get("resultado") if r.status == 200 else f"intermediario HTTP {r.status}: {d.get('error')}"
+        finally:
+            con.close()
+
+
+def relay_disponible():
+    try:
+        import relay
+        info = relay.RELAY
+    except ImportError:
+        return False
+    if not info or not info.get("url") or not info.get("huella"):
+        return False
+    try:  # el propio servidor del dueño no se manda avisos a sí mismo
+        with open("servidor_config.json", encoding="utf-8") as f:
+            ip = json.load(f).get("ip")
+        return not (ip and f"//{ip}:" in info["url"])
+    except (OSError, ValueError):
+        return True
+
+
+def emisor():
+    """Con quién mandar los avisos: la clave propia de Firebase, el intermediario, o nadie."""
+    if configurado():
+        return Firebase()
+    if relay_disponible():
+        import relay
+        return Relay(relay.RELAY)
+    return None
+
+
+def relay_enviar(d):
+    """Lado del dueño: reenvía a Google un aviso que pidió otro servidor."""
+    global _fb_relay
+    if not configurado():
+        raise ValueError("Este servidor no tiene clave de Firebase.")
+    tk, ti, cu = d.get("token"), d.get("titulo"), d.get("cuerpo")
+    if not all(isinstance(x, str) for x in (tk, ti, cu)) or not (20 < len(tk) < 4096) or len(ti) > 150 or len(cu) > 500:
+        raise ValueError("Aviso inválido.")
+    et = d.get("etiqueta")
+    et = et[:60] if isinstance(et, str) else None
+    _fb_relay = _fb_relay or Firebase()
+    return _fb_relay.enviar(tk, ti, cu, et)
 
 
 def enviar_a_todos(fb, titulo, cuerpo, etiqueta=None):

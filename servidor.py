@@ -189,8 +189,8 @@ class Servicio:
         fb, error_previo = None, None
         while not self.salir.is_set():
             try:
-                if push.configurado():
-                    fb = fb or push.Firebase()
+                fb = fb or push.emisor()  # la clave propia de Firebase o, si no hay, el intermediario del repositorio
+                if fb:
                     push.ciclo(fb, eventos_operaciones("."), t(K.NOMBRE_MODO[K.MODO]), K.VERSION, log=PT.log)
                 error_previo = None
             except Exception as e:
@@ -246,7 +246,8 @@ class Servicio:
     @staticmethod
     def _estado_push():
         import push
-        return {"configurado": push.configurado(), "celulares": len(push.tokens())}
+        return {"configurado": push.configurado() or push.relay_disponible(), "propio": push.configurado(),
+                "celulares": len(push.tokens())}
 
     # ---------- lo que leen las apps
     def estado(self):
@@ -315,10 +316,44 @@ class Servicio:
         if a == "push_registrar":
             import push
             push.registrar(str(d.get("token") or ""), str(d.get("version") or "") or None)
-            return "ok" if push.configurado() else "sin_firebase"
+            return "ok" if push.configurado() or push.relay_disponible() else "sin_firebase"
         if a == "push_quitar":
             import push
             push.quitar(str(d.get("token") or "")); return "ok"
+        if a == "claves_iniciar":  # par Ed25519 generado acá: la clave privada nunca sale del servidor
+            import claves as CL
+            m = d.get("modo")
+            if m not in ("demo", "real"):
+                raise ValueError("Modo inválido.")
+            par = CL.cargar_privada_pendiente(m)
+            if not par:
+                priv, pub = CL.generar_ed25519(); CL.guardar_privada_pendiente(m, priv, pub); par = (priv, pub)
+            return {"publica": par[1], "ip": leer_config().get("ip") or ip_publica()}
+        if a == "claves_completar":  # la app solo manda la API key (un identificador; sin la privada no sirve)
+            import claves as CL
+            m, key = d.get("modo"), str(d.get("api_key") or "").strip()
+            if m not in ("demo", "real") or not key or len(key) > 200:
+                raise ValueError("Pegá la API key que te muestra Binance.")
+            if not CL.cargar_privada_pendiente(m):
+                raise ValueError("Primero generá la clave pública (paso anterior).")
+            CL.completar_ed25519(m, key)
+            try:
+                r = probar_claves(m)
+            except Exception as e:
+                raise ValueError(f"Binance rechazó la conexión: {type(e).__name__}: {e}"[:300])
+            PT.log(t("Claves de Binance {m} cargadas y probadas desde la app de control.", m=m))
+            return r
+        if a == "cambiar_modo":
+            m = d.get("modo")
+            if m not in ("simulado", "demo", "real"):
+                raise ValueError("Modo inválido.")
+            validar_modo(m)
+            if m == "real" and d.get("confirmar") != "REAL":
+                raise ValueError("Para operar con dinero real hay que escribir REAL.")
+            PT.guardar_ajustes(modo=m)
+            PT.log(t("Modo cambiado a {m} desde la app de control. El servidor se reinicia.", m=m))
+            self.reiniciar()
+            return "ok"
         if a == "iniciar":
             PT.guardar_ajustes(bot_activo=True); self.bot.iniciar()
             PT.log(t("Bot iniciado desde la app de control.")); return "ok"
@@ -476,6 +511,8 @@ class Manejador(BaseHTTPRequestHandler):
             return self._responder(500, {"error": f"{type(e).__name__}"})
 
     def do_POST(self):
+        if self.path.split("?")[0] == "/api/relay":
+            return self._relay()
         if not self._autorizado():
             return self._responder(401, {"error": "no autorizado"})
         try:
@@ -490,6 +527,32 @@ class Manejador(BaseHTTPRequestHandler):
             return self._responder(400, {"error": str(e)})
         except Exception as e:
             PT.log(f"API: {type(e).__name__}: {e}")
+            return self._responder(500, {"error": f"{type(e).__name__}"})
+
+
+    # ---------- intermediario de avisos: otros servidores del bot que no tienen Firebase mandan sus avisos por acá
+    _relay_cuenta = {}
+    _relay_lock = threading.Lock()
+
+    def _relay(self):
+        import push
+        ip = self.client_address[0]
+        hora = int(time.time() // 3600)
+        with Manejador._relay_lock:
+            n = Manejador._relay_cuenta.get((ip, hora), 0) + 1
+            Manejador._relay_cuenta = {k: v for k, v in Manejador._relay_cuenta.items() if k[1] >= hora - 1}
+            Manejador._relay_cuenta[(ip, hora)] = n
+        if n > push.RELAY_POR_HORA:
+            return self._responder(429, {"error": "demasiados avisos"})
+        try:
+            largo = int(self.headers.get("Content-Length") or 0)
+            if largo > 8000:
+                return self._responder(413, {"error": "demasiado grande"})
+            d = json.loads(self.rfile.read(largo) or b"{}")
+            return self._responder(200, {"ok": True, "resultado": push.relay_enviar(d)})
+        except ValueError as e:
+            return self._responder(400, {"error": str(e)})
+        except Exception as e:
             return self._responder(500, {"error": f"{type(e).__name__}"})
 
 
@@ -523,7 +586,10 @@ def cmd_preparar(a):
     ip = a.ip or c.get("ip") or ip_publica()
     if not ip:
         print("No pude averiguar la IP pública. Volvé a correrlo con --ip <la IP pública de tu servidor>"); sys.exit(1)
-    if c.get("token") and not a.nuevo:
+    if c.get("token") and not a.nuevo and not c.get("ip"):
+        c.update(ip=ip, puerto=c.get("puerto") or a.puerto); guardar_config(c)  # instalado por el asistente de Windows
+        print("Servidor preparado por el asistente: IP guardada.")
+    elif c.get("token") and not a.nuevo:
         print("El servidor ya estaba preparado. Para cambiar el token y el certificado (las apps se vuelven a conectar con "
               "el código nuevo), usá: python3 servidor.py preparar --nuevo")
     else:
@@ -572,41 +638,57 @@ def cmd_claves(a):
     print(f"Claves guardadas: {CL.enmascarar(CL.cargar(m)[0])}. Ahora probalas: python3 servidor.py probar {m}")
 
 
-def cmd_probar(a):
+def probar_claves(m):
+    """Conecta con Binance con las claves del modo y guarda que se probaron. Devuelve saldo (+ permisos en real)."""
     import claves as CL
     import live as LV
-    m = a.modo
     cred = CL.cargar(m)
     if not cred:
-        print(f"No hay claves de {m}. Cargalas con: python3 servidor.py claves {m}"); sys.exit(1)
-    PT.configurar_modo(m)
-    try:
-        br = LV.Broker(m, *cred)
-        s = br.saldo()
-        print(f"Conexión OK. Saldo en futuros: libre {s['libre']:.2f} USDT, total {s.get('total', 0):.2f} USDT.")
-        PT.guardar_ajustes(**{f"probado_{m}": True})
-        if m == "real":
-            rs = br.restricciones()
-            PT.guardar_ajustes(restricciones_real=dict(rs, hora=time.time()))
-            print(f"Permisos: futuros {'sí' if rs['futuros'] else 'NO'}, retiros {'SÍ (deshabilitalos)' if rs['retiros'] else 'no'}, "
-                  f"restricción de IP {'sí' if rs['ip'] else 'NO (activala)'}.")
-    except Exception as e:
-        print(f"No se pudo conectar: {type(e).__name__}: {e}"); sys.exit(1)
+        raise ValueError(f"No hay claves de {m}.")
+    br = LV.Broker(m, *cred)  # no cambia el modo del bot que está corriendo
+    r = {"saldo": br.saldo()}
+    PT.guardar_ajustes(**{f"probado_{m}": True})
+    if m == "real":
+        rs = br.restricciones()
+        PT.guardar_ajustes(restricciones_real=dict(rs, hora=time.time()))
+        r["permisos"] = rs
+    return r
 
 
-def cmd_modo(a):
+def validar_modo(m):
+    """Las mismas reglas que el comando modo: claves cargadas y probadas; en real, sin retiros y con IP restringida."""
     import claves as CL
-    m = a.modo
     aj = PT.leer_ajustes()
     if m != "simulado" and not (CL.cargar(m) and aj.get(f"probado_{m}")):
-        print(f"Primero cargá y probá las claves: python3 servidor.py claves {m} y python3 servidor.py probar {m}")
-        sys.exit(1)
+        raise ValueError(f"Primero cargá y probá las claves de {m}.")
     if m == "real":
         rs = aj.get("restricciones_real") or {}
         if not rs or rs.get("retiros") or not rs.get("ip") or not rs.get("futuros"):
-            print("La clave real tiene que tener futuros habilitados, retiros deshabilitados y restricción de IP. "
-                  "Corregilo en Binance y volvé a probar: python3 servidor.py probar real"); sys.exit(1)
-        cap = aj.get("capital", {}).get("real", 100)
+            raise ValueError("La clave real tiene que tener futuros habilitados, retiros deshabilitados y restricción "
+                             "de IP. Corregilo en Binance y volvé a probar la conexión.")
+
+
+def cmd_probar(a):
+    try:
+        r = probar_claves(a.modo)
+    except Exception as e:
+        print(f"No se pudo conectar: {type(e).__name__}: {e}"); sys.exit(1)
+    sd = r["saldo"]
+    print(f"Conexión OK. Saldo en futuros: libre {sd['libre']:.2f} USDT, total {sd.get('total', 0):.2f} USDT.")
+    if r.get("permisos"):
+        rs = r["permisos"]
+        print(f"Permisos: futuros {'sí' if rs['futuros'] else 'NO'}, retiros {'SÍ (deshabilitalos)' if rs['retiros'] else 'no'}, "
+              f"restricción de IP {'sí' if rs['ip'] else 'NO (activala)'}.")
+
+
+def cmd_modo(a):
+    m = a.modo
+    try:
+        validar_modo(m)
+    except ValueError as e:
+        print(e); sys.exit(1)
+    if m == "real":
+        cap = PT.leer_ajustes().get("capital", {}).get("real", 100)
         print(f"Vas a operar con DINERO REAL: hasta {cap} USDT, {K.RISK_PER_TRADE * 100:.1f} % de riesgo por operación. "
               "Podés perder dinero.")
         if input("Escribí REAL para confirmar: ").strip() != "REAL":
@@ -622,17 +704,25 @@ def cmd_estado(a):
     print(f"Versión {K.VERSION} · modo {K.MODO} · saldo {s['saldo']:.2f} USDT · posiciones abiertas {len(s['abiertas'])}")
 
 
+def cmd_relay_info(a):
+    """Lo que va en relay.json del repositorio para que los demás servidores manden sus avisos por este."""
+    c = leer_config()
+    print(json.dumps({"url": f"https://{c.get('ip')}:{c.get('puerto', 8443)}", "huella": c.get("huella")}))
+
+
 def cmd_probar_push(a):
     import push
-    if not push.configurado():
-        print(f"Falta {push.ARCH_CLAVE} en {os.getcwd()}: copiá ahí la clave de la cuenta de servicio de Firebase.")
-        return
-    fb = push.Firebase()
-    try:
-        fb._acceso()
-    except Exception as e:
-        print(f"No se pudo autenticar con Firebase: {type(e).__name__}: {e}"); return
-    print(f"Firebase OK (proyecto {fb.proyecto}). Celulares registrados: {len(push.tokens())}.")
+    fb = push.emisor()
+    if not fb:
+        print(f"No hay clave de Firebase ({push.ARCH_CLAVE}) ni intermediario disponible."); return
+    if isinstance(fb, push.Firebase):
+        try:
+            fb._acceso()
+        except Exception as e:
+            print(f"No se pudo autenticar con Firebase: {type(e).__name__}: {e}"); return
+        print(f"Firebase OK (proyecto {fb.proyecto}). Celulares registrados: {len(push.tokens())}.")
+    else:
+        print(f"Avisos por el intermediario {fb.url}. Celulares registrados: {len(push.tokens())}.")
     if not push.tokens():
         print("Abrí la app del celular (versión nueva) para que se registre y volvé a probar."); return
     ok, err = push.enviar_a_todos(fb, "Prueba de avisos", "Si ves esto, los avisos del bot llegan al celular.")
@@ -648,11 +738,11 @@ def main():
     for nombre in ("claves", "probar"):
         p = sub.add_parser(nombre); p.add_argument("modo", choices=["demo", "real"])
     p = sub.add_parser("modo"); p.add_argument("modo", choices=["simulado", "demo", "real"])
-    sub.add_parser("estado"); sub.add_parser("correr"); sub.add_parser("probar_push")
+    sub.add_parser("estado"); sub.add_parser("correr"); sub.add_parser("probar_push"); sub.add_parser("relay_info")
     a = ap.parse_args()
     try:
         {"preparar": cmd_preparar, "codigo": cmd_codigo, "claves": cmd_claves, "probar": cmd_probar, "modo": cmd_modo,
-         "estado": cmd_estado, "correr": lambda a: correr(), "probar_push": cmd_probar_push,
+         "estado": cmd_estado, "correr": lambda a: correr(), "probar_push": cmd_probar_push, "relay_info": cmd_relay_info,
          None: lambda a: ap.print_help()}[a.cmd](a)
     except KeyboardInterrupt:
         print("\nCancelado.")

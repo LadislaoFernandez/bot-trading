@@ -60,6 +60,13 @@ try:
     assert cli.estado()["push"] == {"configurado": False, "celulares": 1}
     assert cli.accion("push_quitar", token="token-de-prueba") == "ok"
     assert cli.estado()["push"]["celulares"] == 0
+    # intermediario de avisos: sin token de la app, pero este servidor no tiene clave de Firebase → lo rechaza
+    import push
+    info = C.leer_codigo(codigo)
+    r = push.Relay({"url": f"https://{info['h']}:{info['p']}", "huella": info["f"]}).enviar("x" * 40, "t", "c")
+    assert r.startswith("intermediario HTTP 400"), r
+    assert push.Relay({"url": f"https://{info['h']}:{info['p']}", "huella": "0" * 64}).enviar("x" * 40, "t", "c") \
+        == "el intermediario no tiene el certificado esperado"
     print("10) app de Android: conecta con el servidor, recorre las 8 pestañas sin errores y se registra para los avisos")
 finally:
     srv.terminate()

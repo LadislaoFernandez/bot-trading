@@ -314,6 +314,49 @@ def prueba_reparto():
     print("7) reparto en partes iguales y revisión: respeta el mínimo de Binance y juzga solo con 2 años de historial")
 
 
+def prueba_claves_desde_app():
+    """La app carga las claves de Binance y cambia el modo: la privada Ed25519 se genera y queda en el servidor."""
+    d = carpeta_nueva()
+    import servidor as SV
+    os.chdir(d)
+    import live as L
+    import paper_trader as PT
+    import claves as CL
+
+    class BrokerFalso:
+        def __init__(self, modo, key, secret):
+            assert key == "API-KEY-DE-PRUEBA" and "PRIVATE KEY" in secret  # la privada nunca vino de la app
+        def saldo(self): return {"total": 5000.0, "libre": 5000.0, "usado": 0.0}
+        def restricciones(self): return {"futuros": True, "retiros": False, "ip": True}
+    orig, L.Broker = L.Broker, BrokerFalso
+    try:
+        SV.guardar_config({"ip": "203.0.113.5", "puerto": 8443, "token": "x", "huella": "y"})
+        srv = SV.Servicio.__new__(SV.Servicio); srv.cache = None
+        reinicios = []
+        srv.reiniciar = lambda: reinicios.append(1)
+        try:
+            srv.accion({"accion": "cambiar_modo", "modo": "demo"}); assert False, "sin claves no debe dejar"
+        except ValueError:
+            pass
+        r1 = srv.accion({"accion": "claves_iniciar", "modo": "demo"})
+        assert "BEGIN PUBLIC KEY" in r1["publica"] and r1["ip"] == "203.0.113.5"
+        assert srv.accion({"accion": "claves_iniciar", "modo": "demo"})["publica"] == r1["publica"]  # misma clave
+        r2 = srv.accion({"accion": "claves_completar", "modo": "demo", "api_key": "API-KEY-DE-PRUEBA"})
+        assert r2["saldo"]["libre"] == 5000.0 and CL.hay("demo")
+        assert srv.accion({"accion": "cambiar_modo", "modo": "demo"}) == "ok" and reinicios
+        assert PT.leer_ajustes()["modo"] == "demo"
+        srv.accion({"accion": "claves_iniciar", "modo": "real"})
+        srv.accion({"accion": "claves_completar", "modo": "real", "api_key": "API-KEY-DE-PRUEBA"})
+        try:
+            srv.accion({"accion": "cambiar_modo", "modo": "real"}); assert False, "real sin escribir REAL"
+        except ValueError:
+            pass
+        assert srv.accion({"accion": "cambiar_modo", "modo": "real", "confirmar": "REAL"}) == "ok"
+    finally:
+        L.Broker = orig
+    print("9) claves de Binance desde la app: Ed25519 generada en el servidor, prueba de conexión y cambio de modo")
+
+
 def prueba_actualizador():
     import actualizador as AC
     import config as K
@@ -348,4 +391,5 @@ if __name__ == "__main__":
     prueba_reglas()
     prueba_laboratorio()
     prueba_reparto()
+    prueba_claves_desde_app()
     print(f"TODO OK en {time.time() - t0:.0f} s")

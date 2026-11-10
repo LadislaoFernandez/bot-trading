@@ -873,6 +873,8 @@ EN = {
     'App {v}': 'App {v}',
     'Actualizando a {v}…': 'Updating to {v}…',
     'Decisiones': 'Decisions',
+    'Claves de Binance {m} cargadas y probadas desde la app de control.': 'Binance {m} keys loaded and tested from the control app.',
+    'Modo cambiado a {m} desde la app de control. El servidor se reinicia.': 'Mode changed to {m} from the control app. The server restarts.',
     'Precio actual': 'Current price',
     'Si toca el stop': 'If the stop is hit',
     'Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta. No hay un precio objetivo fijo: Breakout y Resorte de tendencia usan un stop móvil que sigue al precio cuando va a favor, así las ganancias corren. La operación cierra en ganancia cuando el precio vuelve hasta ese stop después de haberlo empujado por encima de la entrada (o por debajo, en una venta). "Si toca el stop" muestra cuánto ganaría o perdería en ese caso.': 'Each strategy on each coin: how much it has and whether it has an open position. There is no fixed target price: Breakout and Trend spring use a trailing stop that follows the price when it moves in favor, so profits run. The trade closes in profit when the price comes back to that stop after having pushed it above the entry (or below, for a short). "If the stop is hit" shows how much it would win or lose in that case.',

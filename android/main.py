@@ -125,6 +125,12 @@ class ControlApp(App):
         self.cliente, self.datos, self.error, self.pestana = None, None, None, "resumen"
         self.en_frente, self._primer_vistazo = True, True
         self.raiz = BoxLayout(orientation="vertical")
+        if platform == "android":
+            try:
+                import instalador
+                instalador.escuchar(self._error_instalacion)
+            except Exception:
+                pass
         cod = self._leer_codigo()
         if cod:
             self._conectar(cod)
@@ -648,14 +654,49 @@ class ControlApp(App):
             return None
 
     def _bajar_version(self):
+        """Fuera de Android (pruebas en la PC) solo abre el link del APK."""
         import avisos as AV
+        import webbrowser
+        webbrowser.open(AV.URL_APK)
+
+    def _actualizar(self, auto=False):
+        """Baja el APK nuevo e instala la actualización desde la app (instalador.py)."""
         if platform != "android":
-            import webbrowser
-            return webbrowser.open(AV.URL_APK)
-        from jnius import autoclass
-        Intent, Uri = autoclass("android.content.Intent"), autoclass("android.net.Uri")
-        autoclass("org.kivy.android.PythonActivity").mActivity.startActivity(Intent(Intent.ACTION_VIEW,
-                                                                                    Uri.parse(AV.URL_APK)))
+            return None if auto else self._bajar_version()
+        if getattr(self, "act_estado", None) in ("bajando", "instalando"):
+            return
+        self.act_estado, self.act_avance = "bajando", 0.0
+        self._pintar()
+
+        def tarea():
+            import avisos as AV
+            import instalador as IN
+            try:
+                ruta = IN.bajar(AV.URL_APK, os.path.join(self.user_data_dir, "actualizacion.apk"), self._avance_act)
+                self.act_estado = "instalando"
+                self._pintar()
+                IN.instalar(ruta)
+            except Exception as e:
+                self.act_estado = "error: " + f"{type(e).__name__}: {e}"[:160]
+                self._pintar()
+            finally:
+                try:
+                    from jnius import detach
+                    detach()
+                except Exception:
+                    pass
+        threading.Thread(target=tarea, daemon=True).start()
+
+    def _avance_act(self, x):
+        if int(x * 20) != int(getattr(self, "act_avance", 0) * 20):  # repinta cada 5 %
+            self.act_avance = x
+            self._pintar()
+        self.act_avance = x
+
+    @mainthread
+    def _error_instalacion(self, texto):
+        self.act_estado = "error: " + texto
+        self._pintar()
 
     def _tarjeta_version(self, d, caja):
         import avisos as AV
@@ -663,12 +704,25 @@ class ControlApp(App):
             self.version_app = self._version_app()
         if not AV.version_nueva(d.get("version"), self.version_app):
             return
+        estado = getattr(self, "act_estado", None)
+        if estado is None and platform == "android" and not getattr(self, "_act_auto", False):
+            self._act_auto = True  # una vez por apertura de la app: se actualiza sola
+            Clock.schedule_once(lambda dt: self._actualizar(auto=True), 1)
+            estado = "bajando"
         t = Tarjeta()
-        t.add_widget(Texto(f"Hay una versión nueva de la app: {d.get('version')} (tenés la {self.version_app}).", 15,
-                           AMBAR, negrita=True))
-        t.add_widget(Texto("Tocá el botón, esperá que baje, abrí el archivo y tocá Actualizar. Android siempre pide "
-                           "confirmar la instalación. Tus datos y el código de conexión se conservan.", 13, GRIS))
-        t.add_widget(Boton("Bajar la versión nueva", self._bajar_version, col=ACENTO))
+        t.add_widget(Texto(f"Versión nueva de la app: {d.get('version')} (tenés la {self.version_app}).", 15, AMBAR,
+                           negrita=True))
+        if estado == "bajando":
+            t.add_widget(Texto(f"Bajando la actualización… {getattr(self, 'act_avance', 0) * 100:.0f} %", 13, GRIS))
+        elif estado == "instalando":
+            t.add_widget(Texto("Instalando. La app se cierra sola para actualizarse: volvé a abrirla en unos segundos. "
+                               "La primera vez Android pide confirmar (y quizá permitir que esta app instale "
+                               "actualizaciones); después se actualiza sin preguntar.", 13, GRIS))
+        else:
+            if estado and estado.startswith("error: "):
+                t.add_widget(Texto("No se pudo actualizar: " + estado[7:], 13, ROJO))
+            t.add_widget(Texto("Tus datos y el código de conexión se conservan.", 13, GRIS))
+            t.add_widget(Boton("Actualizar ahora", lambda: self._actualizar(), col=ACENTO))
         caja.add_widget(t)
 
     def _cambiar_avisos(self, activo):
@@ -767,11 +821,22 @@ class ControlApp(App):
             self.cabecera.color = ROJO if d["snap"].get("frenado") else (VERDE if b.get("corriendo") else AMBAR)
         if desde_sondeo and self.pestana in ("control", "servidor") and self.cuerpo.children:
             return  # no rehace estas pantallas mientras escribís (se actualizan al entrar o al hacer una acción)
+        viejo = self.cuerpo.children[0] if self.cuerpo.children else None
+        misma = isinstance(viejo, ScrollView) and getattr(self, "_pintada", None) == self.pestana
+        if desde_sondeo and misma and getattr(viejo, "_touch", None):
+            return  # el dedo está deslizando la pantalla: se actualiza en el próximo sondeo
+        lugar = viejo.scroll_y if misma else None
         self.cuerpo.clear_widgets()
         if not d:
             sv, caja = pagina(); caja.add_widget(Texto("Esperando datos del servidor…", 15, GRIS))
             self.cuerpo.add_widget(sv); return
         getattr(self, "_p_" + self.pestana)(d)
+        self._pintada = self.pestana
+        nuevo = self.cuerpo.children[0] if self.cuerpo.children else None
+        if lugar is not None and isinstance(nuevo, ScrollView):
+            # al refrescar los datos queda donde estabas, no vuelve arriba (scroll_y: 1 = arriba, 0 = abajo)
+            nuevo.scroll_y = lugar
+            Clock.schedule_once(lambda dt: setattr(nuevo, "scroll_y", lugar), 0)
         sl = d.get("sin_leer") or 0
         self.tabs["avisos"].text = f"Avisos ({sl})" if sl else "Avisos"
 

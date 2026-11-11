@@ -39,6 +39,7 @@ try:
     import main as M
     M.ControlApp._leer_codigo = lambda self: codigo
     app = M.ControlApp()
+    resultado = {}
     pasos = ["resumen", "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
              # asistente de Oracle y conexión de Binance (pantallas; la creación real se prueba en correr_pruebas)
              lambda: app._pantalla_codigo(), lambda: app._asistente_inicio(), lambda: app._asistente_clave(),
@@ -46,7 +47,17 @@ try:
              lambda: app._log("línea de prueba"), lambda: app._asistente_error("falla de prueba"),
              lambda: app._asistente_listo(codigo, "127.0.0.1", "VM.Standard.E2.1.Micro"),
              lambda: app._pantalla_claves("demo"), lambda: None, lambda: app._pantalla_claves("real"), lambda: None,
-             lambda: app._volver_inicio(), "resumen"]
+             lambda: app._volver_inicio(), "resumen",
+             # tarjeta de versión nueva (en la PC no se actualiza sola) y el refresco que no vuelve arriba
+             lambda: (setattr(app, "version_app", "0.1"), app._ir("resumen")),
+             lambda: (setattr(app, "version_app", None), app._ir("operaciones")),
+             lambda: setattr(app.cuerpo.children[0], "scroll_y", 0.3),
+             lambda: app._pintar(desde_sondeo=True),
+             lambda: comprobar_scroll(), "resumen"]
+
+    def comprobar_scroll():
+        assert abs(app.cuerpo.children[0].scroll_y - 0.3) < 1e-6, app.cuerpo.children[0].scroll_y
+        resultado["scroll"] = True
 
     def paso(dt):
         if not app.datos:
@@ -61,6 +72,7 @@ try:
     app.run()
     assert app.datos and not app.error, app.error
     assert not errores, errores
+    assert resultado.get("scroll"), "al refrescar, la pantalla volvió arriba"
     # avisos push: el celular se registra en el servidor (sin clave de Firebase el servidor lo acepta igual)
     import cliente_api as C
     cli = C.Cliente(codigo)

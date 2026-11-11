@@ -233,7 +233,7 @@ def ciclo(fb, eventos, nombre_modo, version_servidor, log=print):
     for token, d in tk.items():
         if AV.version_nueva(version_servidor, d.get("version")) and d.get("avisada") != version_servidor:
             r = fb.enviar(token, f"Hay una versión nueva de la app ({version_servidor})",
-                          "Abrí la app y tocá \"Bajar la versión nueva\". Tus datos y el código se conservan.",
+                          "Tocá para abrir la app: se actualiza sola. Tus datos y el código se conservan.",
                           etiqueta="version")
             if r == "invalido":
                 quitar(token)

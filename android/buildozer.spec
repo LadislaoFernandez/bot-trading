@@ -11,7 +11,9 @@ fullscreen = 0
 icon.filename = %(source.dir)s/icono.png
 presplash.filename = %(source.dir)s/icono.png
 android.presplash_color = #0f1115
-android.permissions = INTERNET, POST_NOTIFICATIONS
+android.permissions = INTERNET, POST_NOTIFICATIONS, REQUEST_INSTALL_PACKAGES
+# la app se actualiza sola (instalador.py): el resultado de la instalación vuelve a esta misma actividad
+android.manifest.launch_mode = singleTask
 android.api = 34
 android.minapi = 24
 android.archs = arm64-v8a, armeabi-v7a

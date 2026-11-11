@@ -112,6 +112,7 @@ jobs:
           m=$(find android/.buildozer -path "*dists*" -name AndroidManifest.xml | head -1)
           echo "$m"
           grep -q "POST_NOTIFICATIONS" "$m" && grep -q "default_notification_channel_id" "$m"
+          grep -q "REQUEST_INSTALL_PACKAGES" "$m" && grep -q "singleTask" "$m"
           grep -o 'targetSdkVersion="[0-9]*"' "$m" || true
           signer=$(ls -d ~/.buildozer/android/platform/android-sdk/build-tools/*/ | tail -1)
           "$signer/aapt" dump xmltree android/bin/*release*.apk AndroidManifest.xml | grep -q "com.google.firebase.messaging.FirebaseMessagingService"

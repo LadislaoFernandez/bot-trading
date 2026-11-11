@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.29"
+VERSION = "1.30"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.30", "11/11/2026", [
+        "Las versiones nuevas se detectan mucho más rápido: el servidor y la app de Windows buscan cada 2 minutos (antes "
+        "cada hora), y la app de Android le pregunta directo a GitHub al abrirse, sin esperar al servidor.",
+    ]),
     ("1.29", "11/11/2026", [
         "Diseño nuevo en las dos apps: fondo azul noche (o modo claro), tarjetas con borde y franja de color, títulos de "
         "sección y cuadritos para los números. Se elige oscuro o claro en Configuración.",

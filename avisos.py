@@ -5,7 +5,32 @@ import json
 import os
 
 MAX_VISTOS = 400
-URL_APK = "https://github.com/LadislaoFernandez/bot-trading/releases/latest/download/BotTrading-Control.apk"
+REPO = "LadislaoFernandez/bot-trading"
+URL_APK = f"https://github.com/{REPO}/releases/latest/download/BotTrading-Control.apk"
+
+
+def ultima_version_github(repo=REPO, timeout=10, contexto=None):
+    """Versión de la última publicación en GitHub ("1.29"), o None. Mira a dónde redirige /releases/latest: no usa la
+    API de GitHub (que limita a 60 consultas por hora), así se puede preguntar seguido."""
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    class _SinSeguir(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    abrir = urllib.request.build_opener(_SinSeguir, urllib.request.HTTPSHandler(
+        context=contexto or ssl.create_default_context()))
+    req = urllib.request.Request(f"https://github.com/{repo}/releases/latest", method="HEAD",
+                                 headers={"User-Agent": "bot-trading"})
+    try:
+        with abrir.open(req, timeout=timeout) as r:
+            destino = r.headers.get("Location", "") or r.geturl()
+    except urllib.error.HTTPError as e:
+        if e.code not in (301, 302, 303, 307, 308):
+            raise
+        destino = e.headers.get("Location", "")
+    return destino.rsplit("/tag/", 1)[1].strip("/").lstrip("vV") if "/tag/" in destino else None
 
 
 def _num(v, d=2, signo=False):

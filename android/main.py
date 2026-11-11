@@ -892,11 +892,43 @@ class ControlApp(App):
         self.act_estado = "error: " + texto
         self._pintar()
 
+    def _buscar_version_github(self):
+        """Pregunta a GitHub cuál es la última versión (al abrir la app y como mucho cada 2 minutos), así el aviso de
+        versión nueva aparece enseguida aunque el servidor todavía no se haya actualizado."""
+        if platform != "android" or time.time() < getattr(self, "_prox_github", 0):
+            return
+        self._prox_github = time.time() + 120
+
+        def tarea():
+            import avisos as AV
+            try:
+                import ssl
+                import certifi
+                ctx = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                ctx = None
+            try:
+                v = AV.ultima_version_github(contexto=ctx)
+            except Exception:
+                return
+            if v and v != getattr(self, "version_github", None):
+                self.version_github = v
+                self._pintar()
+        threading.Thread(target=tarea, daemon=True).start()
+
+    def _version_disponible(self, d):
+        """La más nueva entre la del servidor y la publicada en GitHub."""
+        import avisos as AV
+        vs = [v for v in (d.get("version"), getattr(self, "version_github", None)) if v]
+        return max(vs, key=AV.version_tupla) if vs else None
+
     def _tarjeta_version(self, d, caja):
         import avisos as AV
         if not hasattr(self, "version_app"):
             self.version_app = self._version_app()
-        if not AV.version_nueva(d.get("version"), self.version_app):
+        self._buscar_version_github()
+        nueva = self._version_disponible(d)
+        if not AV.version_nueva(nueva, self.version_app):
             return
         estado = getattr(self, "act_estado", None)
         if estado is None and platform == "android" and not getattr(self, "_act_auto", False):
@@ -904,7 +936,7 @@ class ControlApp(App):
             Clock.schedule_once(lambda dt: self._actualizar(auto=True), 1)
             estado = "bajando"
         t = Tarjeta(franja=AMBAR)
-        t.add_widget(Texto(f"Versión nueva de la app: {d.get('version')} (tenés la {self.version_app}).", 15, AMBAR,
+        t.add_widget(Texto(f"Versión nueva de la app: {nueva} (tenés la {self.version_app}).", 15, AMBAR,
                            negrita=True))
         if estado == "bajando":
             t.add_widget(Texto(f"Bajando la actualización… {getattr(self, 'act_avance', 0) * 100:.0f} %", 13, GRIS))
@@ -1580,7 +1612,7 @@ class ControlApp(App):
         a = d.get("actualizacion") or {}
         seccion(caja, "Actualizaciones del servidor")
         t = Tarjeta()
-        t.add_widget(Texto("El servidor busca versiones nuevas cada hora.", 13, GRIS))
+        t.add_widget(Texto("El servidor busca versiones nuevas cada 2 minutos.", 13, GRIS))
         t.add_widget(Texto({"al día": f"Al día (versión {d.get('version')}).",
                             "disponible": f"Hay una versión nueva: {a.get('version')}.",
                             "instalada": f"Versión {a.get('version')} instalada; el servidor se está reiniciando.",

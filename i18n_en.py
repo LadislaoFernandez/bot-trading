@@ -861,7 +861,7 @@ EN = {
     'Cuánto dinero de la cuenta usa el bot en el modo actual. Con el piloto encendido, el bot reparte el cambio solo.': 'How much of the account the bot uses in the current mode. With the autopilot on, the bot splits the change by itself.',
     'Busca estrategias nuevas una vez por semana. La que aprueba el examen final queda 3 meses en observación sin dinero; si les gana a Breakout y Resorte, entra sola al piloto.': 'Searches for new strategies once a week. The one that passes the final exam stays 3 months under observation without money; if it beats Breakout and Trend spring, it joins the autopilot by itself.',
     'Actualizaciones del servidor': 'Server updates',
-    'El servidor busca versiones nuevas cada hora.': 'The server checks for new versions every hour.',
+    'El servidor busca versiones nuevas cada 2 minutos.': 'The server checks for new versions every 2 minutes.',
     'Instalar solas': 'Install automatically',
     '¿Permitir que el bot vuelva a abrir operaciones? El límite de pérdida se vuelve a medir desde el saldo actual.': 'Allow the bot to open trades again? The loss limit is measured again from the current balance.',
     '¿Apagar el piloto automático? El bot vuelve a usar las estrategias y montos que tenía a mano.': 'Turn off the autopilot? The bot goes back to the strategies and amounts it had by hand.',

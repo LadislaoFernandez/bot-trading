@@ -174,9 +174,9 @@ class Control(QMainWindow):
                     AC.instalar(info, carpeta=os.getcwd())
                     self.reiniciar_pendiente = True
                     return
-            except Exception as e:  # sin internet o GitHub caído: reintenta en una hora
+            except Exception as e:  # sin internet o GitHub caído: reintenta en 2 minutos
                 print("actualización:", type(e).__name__, e)
-            self.parar.wait(3600)
+            self.parar.wait(120)  # cada 2 minutos (la consulta liviana a GitHub no tiene límite)
 
     def _reiniciar(self):
         exe = sys.executable
@@ -541,7 +541,7 @@ class Control(QMainWindow):
         self.lbl_lab = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_lab)
         self.box_cand = QVBoxLayout(); self.box_cand.setSpacing(8); pv.addLayout(self.box_cand); self._cand_firma = None
 
-        pv = seccion(t("Actualizaciones del servidor"), t("El servidor busca versiones nuevas cada hora."))
+        pv = seccion(t("Actualizaciones del servidor"), t("El servidor busca versiones nuevas cada 2 minutos."))
         self.lbl_act = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_act)
         h = QHBoxLayout()
         self.sw_act = QCheckBox(t("Instalar solas")); self.sw_act.setProperty("rol", "switch")

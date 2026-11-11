@@ -201,17 +201,21 @@ class Servicio:
             self.salir.wait(15)
 
     def _tareas(self):
-        """Cada 5 minutos: laboratorio semanal. Cada hora: busca actualizaciones (y las instala si está activado)."""
-        prox_act = time.time() + 120
+        """Cada 5 minutos: laboratorio semanal. Cada 2 minutos: busca actualizaciones (y las instala si está activado)."""
+        prox_act, prox_lab = time.time() + 60, 0
         while not self.salir.is_set():
-            try:
-                self.lab.tick()
-            except Exception as e:
-                PT.log(f"Laboratorio: {e}")
+            if time.time() >= prox_lab:
+                prox_lab = time.time() + 300
+                try:
+                    self.lab.tick()
+                except Exception as e:
+                    PT.log(f"Laboratorio: {e}")
             if time.time() >= prox_act:
-                prox_act = time.time() + 3600
-                self.buscar_actualizacion(instalar=PT.leer_ajustes().get("instalar_actualizaciones_auto", True))
-            self.salir.wait(300)
+                prox_act = time.time() + 120
+                r = self.buscar_actualizacion(instalar=PT.leer_ajustes().get("instalar_actualizaciones_auto", True))
+                if r.get("estado") == "error":  # sin internet o falló la instalación: no reintentar tan seguido
+                    prox_act = time.time() + 900
+            self.salir.wait(30)
 
     def buscar_actualizacion(self, instalar=False):
         import actualizador

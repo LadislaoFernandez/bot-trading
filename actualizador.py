@@ -58,6 +58,13 @@ def buscar():
     """Devuelve None si no hay nada nuevo, o un diccionario con la versión disponible."""
     if not getattr(K, "REPO", ""):
         raise RuntimeError("repo-no-configurado")
+    try:  # primero la consulta liviana (sin límite); a la API solo si hay una versión más nueva
+        import avisos as AV
+        v = AV.ultima_version_github(K.REPO)
+        if v and version_tupla(v) <= version_tupla(K.VERSION):
+            return None
+    except Exception:
+        pass
     with _get(f"https://api.github.com/repos/{K.REPO}/releases/latest") as r:
         rel = json.loads(r.read().decode("utf-8"))
     ver = rel.get("tag_name", "")

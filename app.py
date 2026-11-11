@@ -159,12 +159,12 @@ QCheckBox::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT}
 QLabel[rol="chip"] {{ border-radius: 9px; padding: 2px 9px; font-size: 12px; }}
 QLabel[rol="link"] {{ color: {MUTED}; font-size: 12px; }}
 QLabel[rol="link"]:hover {{ color: {ACCENT}; text-decoration: underline; }}
-QLineEdit, QDoubleSpinBox {{ background: {PANEL2}; border: 1px solid {LINE}; border-radius: 8px; padding: 6px 10px;
+QLineEdit, QDoubleSpinBox, QSpinBox {{ background: {PANEL2}; border: 1px solid {LINE}; border-radius: 8px; padding: 6px 10px;
     font-size: 13px; selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT}; }}
-QDoubleSpinBox:disabled {{ color: {MUTED}; }}
-QDoubleSpinBox {{ padding: 6px 8px; }}
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{ width: 0; border: none; image: none; }}
-QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow {{ width: 0; height: 0; image: none; }}
+QDoubleSpinBox:disabled, QSpinBox:disabled {{ color: {MUTED}; }}
+QDoubleSpinBox, QSpinBox {{ padding: 6px 8px; }}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: none; image: none; }}
+QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow, QSpinBox::up-arrow, QSpinBox::down-arrow {{ width: 0; height: 0; image: none; }}
 QPushButton[rol="paso"] {{ min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; padding: 0;
     border-radius: 8px; border: 1px solid {LINE}; background: {PANEL2}; color: {MUTED}; font-size: 17px; font-weight: 600; }}
 QPushButton[rol="paso"]:hover {{ border: 1px solid {ACCENT}; color: {ACCENT}; }}
@@ -173,7 +173,7 @@ QPushButton[rol="paso"]:disabled {{ color: {LINE}; border: 1px solid {LINE}; }}
 QLabel[rol="aviso"] {{ font-size: 12px; }}
 #actualizacion {{ background: {ACCENT_SOFT}; border: 1px solid {rgba(ACCENT, 0.5)}; border-radius: 10px; }}
 #actualizacion QLabel {{ border: none; background: transparent; }}
-QLineEdit:focus, QDoubleSpinBox:focus {{ border: 1px solid {ACCENT}; }}
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {{ border: 1px solid {ACCENT}; }}
 QPushButton[rol="modo"] {{ padding: 12px 16px; border-radius: 10px; border: 1px solid {LINE}; background: {PANEL};
     font-size: 14px; text-align: left; }}
 QPushButton[rol="modo"]:hover {{ border: 1px solid {rgba(ACCENT, 0.6)}; }}
@@ -351,6 +351,8 @@ def scroll(widget):
     sa = QScrollArea()
     sa.setWidgetResizable(True)
     sa.setFrameShape(QFrame.NoFrame)
+    if not widget.objectName():
+        widget.setObjectName("pagina")  # mismo fondo que la página (si no, Qt lo pinta gris claro)
     sa.setWidget(widget)
     return sa
 

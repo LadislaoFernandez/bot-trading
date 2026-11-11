@@ -38,9 +38,15 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.28"
+VERSION = "1.29"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.29", "11/11/2026", [
+        "Diseño nuevo en las dos apps: fondo azul noche (o modo claro), tarjetas con borde y franja de color, títulos de "
+        "sección y cuadritos para los números. Se elige oscuro o claro en Configuración.",
+        "App de Android: las pestañas pasan a un menú lateral (botón ☰ arriba a la izquierda) en lugar de la barra de abajo.",
+        "La pestaña Servidor se llama ahora Configuración.",
+    ]),
     ("1.28", "11/11/2026", [
         "App de Android: se actualiza sola desde la app (baja e instala la versión nueva; la primera vez Android pide "
         "confirmar, después ya no). Al refrescar los datos la pantalla ya no vuelve arriba.",

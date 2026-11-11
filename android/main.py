@@ -835,10 +835,30 @@ class ControlApp(App):
         nuevo = self.cuerpo.children[0] if self.cuerpo.children else None
         if lugar is not None and isinstance(nuevo, ScrollView):
             # al refrescar los datos queda donde estabas, no vuelve arriba (scroll_y: 1 = arriba, 0 = abajo)
-            nuevo.scroll_y = lugar
-            Clock.schedule_once(lambda dt: setattr(nuevo, "scroll_y", lugar), 0)
+            self._mantener_lugar(nuevo, lugar)
         sl = d.get("sin_leer") or 0
         self.tabs["avisos"].text = f"Avisos ({sl})" if sl else "Avisos"
+
+    @staticmethod
+    def _mantener_lugar(sv, lugar):
+        """Pone la pantalla nueva en el mismo lugar que la vieja. Los textos se miden en los cuadros siguientes: mientras
+        el contenido todavía es más bajo que la pantalla, Kivy fuerza scroll_y a 1 (arriba). Por eso se vuelve a poner
+        el lugar cada vez que el contenido crece, durante el primer segundo y salvo que el dedo ya esté moviéndola."""
+        caja = sv.children[0] if sv.children else None
+
+        def aplicar(*_):
+            if caja is not None and caja.height > sv.height and not getattr(sv, "_touch", None):
+                sv.scroll_y = lugar
+        aplicar()
+        Clock.schedule_once(aplicar, 0)
+        if caja is not None:
+            caja.bind(height=aplicar)
+            sv.bind(height=aplicar)
+
+            def soltar(dt):
+                caja.unbind(height=aplicar)
+                sv.unbind(height=aplicar)
+            Clock.schedule_once(soltar, 1.0)
 
     def _p_resumen(self, d):
         s = d["snap"]

@@ -38,9 +38,13 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.26"
+VERSION = "1.27"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.27", "11/11/2026", [
+        "Textos de Posiciones y de las estrategias actualizados: explican el stop inicial a 2 ATR, el stop móvil a 3 ATR "
+        "y el paso a la entrada con 2 ATR de ganancia.",
+    ]),
     ("1.26", "10/11/2026", [
         "Breakout y Resorte de tendencia aseguran la operación: cuando lleva 2 ATR de ganancia, el stop pasa a la "
         "entrada más las comisiones y ya no puede cerrar en pérdida (simulado 2022-2026: Breakout de 250 a 281 por "

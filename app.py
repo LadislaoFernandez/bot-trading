@@ -181,10 +181,11 @@ QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {{ border: 1px sol
 DESCRIPCIONES = {
     "BREAKOUT": "Sigue la tendencia. Compra cuando el cierre supera el máximo de las últimas 48 horas con tendencia de "
                 "fondo alcista (EMA 50 sobre EMA 200), y vende en corto en el caso contrario. Stop a 2 ATR que sigue al "
-                "precio a 3 ATR.",
+                "precio a 3 ATR; con 2 ATR de ganancia pasa a la entrada más las comisiones.",
     "TL": "Espera a que el mercado se comprima y entra cuando vuelve a empujar a favor de la tendencia, como un resorte "
           "que se suelta. Solo compras: tendencia de 4 horas alcista (EMA 10 sobre EMA 55), ADX perdiendo fuerza, squeeze "
-          "reciente y momentum que gira hacia arriba. Sale cuando el momentum pasa a negativo o por el stop.",
+          "reciente y momentum que gira hacia arriba. Sale cuando el momentum pasa a negativo o por el stop (2 ATR, que sigue al precio a 3 ATR y con 2 ATR "
+          "de ganancia pasa a la entrada más las comisiones).",
     "MR": "Para mercados sin tendencia (ADX menor a 20). Compra cuando el precio cae por debajo de la banda inferior de "
           "Bollinger con RSI menor a 30 y vende en corto en el extremo opuesto. Sale al volver a la media, o a las 24 "
           "horas.",

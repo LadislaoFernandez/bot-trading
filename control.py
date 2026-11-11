@@ -317,13 +317,14 @@ class Control(QMainWindow):
         return w
 
     def _pag_posiciones(self):
-        w, v = self._pagina(t("Posiciones"), t("Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta. "
-                                               "No hay un precio objetivo fijo: Breakout y Resorte de tendencia usan un "
-                                               "stop móvil que sigue al precio cuando va a favor, así las ganancias corren. "
-                                               "La operación cierra en ganancia cuando el precio vuelve hasta ese stop "
-                                               "después de haberlo empujado por encima de la entrada (o por debajo, en una "
-                                               "venta). \"Si toca el stop\" muestra cuánto ganaría o perdería en ese "
-                                               "caso."))
+        w, v = self._pagina(t("Posiciones"), t(
+            "Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta. "
+            "No hay un precio objetivo fijo. El stop arranca a 2 ATR de la entrada (ATR: lo que se mueve el precio en una "
+            "vela típica). Cuando el precio va a favor, el stop lo sigue a 3 ATR del último cierre y nunca retrocede, así las "
+            "ganancias corren. Además, cuando la operación lleva 2 ATR de ganancia, el stop pasa a la entrada más las "
+            "comisiones: desde ahí ya no puede cerrar en pérdida. Las estrategias del laboratorio usan sus propias reglas (se "
+            "ven en Estrategias)."
+            " \"Si toca el stop\" muestra cuánto ganaría o perdería si el precio llega al stop."))
         self.tab_pos = tabla([t("Moneda"), t("Estrategia"), t("Monto"), t("Capital"), t("Posición"), t("Entrada"),
                               t("Precio actual"), t("Stop"), t("Si toca el stop"), t("Resultado")])
         v.addWidget(self.tab_pos, 1)

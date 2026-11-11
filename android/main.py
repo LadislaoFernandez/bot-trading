@@ -837,9 +837,12 @@ class ControlApp(App):
 
     def _p_posiciones(self, d):
         sv, caja = pagina()
-        caja.add_widget(Texto("No hay un precio objetivo fijo: el stop sigue al precio cuando va a favor (stop móvil), así "
-                              "las ganancias corren. Cierra en ganancia cuando el precio vuelve hasta ese stop después de "
-                              "haberlo empujado más allá de la entrada.", 13, GRIS))
+        caja.add_widget(Texto(
+            "No hay un precio objetivo fijo. El stop arranca a 2 ATR de la entrada (ATR: lo que se mueve el precio en una "
+            "vela típica). Cuando el precio va a favor, el stop lo sigue a 3 ATR del último cierre y nunca retrocede, así las "
+            "ganancias corren. Además, cuando la operación lleva 2 ATR de ganancia, el stop pasa a la entrada más las "
+            "comisiones: desde ahí ya no puede cerrar en pérdida. Las estrategias del laboratorio usan sus propias reglas (se "
+            "ven en Estrategias).", 13, GRIS))
 
         def px(v):
             return num(v, 2 if (v or 0) >= 100 else 4) if v else "—"

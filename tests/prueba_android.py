@@ -30,6 +30,7 @@ try:
     os.environ["KIVY_NO_ARGS"] = "1"
     from kivy.base import ExceptionHandler, ExceptionManager
     from kivy.clock import Clock
+    from kivy.core.window import Window
 
     class Guardar(ExceptionHandler):
         def handle_exception(self, e):
@@ -50,13 +51,20 @@ try:
              lambda: app._volver_inicio(), "resumen",
              # tarjeta de versión nueva (en la PC no se actualiza sola) y el refresco que no vuelve arriba
              lambda: (setattr(app, "version_app", "0.1"), app._ir("resumen")),
-             lambda: (setattr(app, "version_app", None), app._ir("operaciones")),
-             lambda: setattr(app.cuerpo.children[0], "scroll_y", 0.3),
+             lambda: (setattr(app, "version_app", None), setattr(Window, "size", (360, 300)), app._ir("estrategias")),
+             lambda: marcar_scroll(),
              lambda: app._pintar(desde_sondeo=True),
              lambda: comprobar_scroll(), "resumen"]
 
+    def marcar_scroll():
+        sv = app.cuerpo.children[0]
+        sv.scroll_y = 0.3
+        resultado["antes"] = (sv.scroll_y, sv.children[0].height, sv.height)
+
     def comprobar_scroll():
-        assert abs(app.cuerpo.children[0].scroll_y - 0.3) < 1e-6, app.cuerpo.children[0].scroll_y
+        sv = app.cuerpo.children[0]
+        assert resultado["antes"][1] > resultado["antes"][2], f"el contenido no llega a deslizarse: {resultado['antes']}"
+        assert abs(sv.scroll_y - 0.3) < 1e-6, (sv.scroll_y, sv.children[0].height, sv.height, resultado["antes"])
         resultado["scroll"] = True
 
     def paso(dt):

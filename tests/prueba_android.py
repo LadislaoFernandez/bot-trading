@@ -39,9 +39,32 @@ try:
     ExceptionManager.add_handler(Guardar())
     import main as M
     M.ControlApp._leer_codigo = lambda self: codigo
+    Window.size = (400, 860)  # como un celular
+    CAPTURAS = os.environ.get("CAPTURAS")  # carpeta: guarda una foto de cada paso (el CI las sube para revisarlas)
+
+    # datos de ejemplo encima de los del servidor de prueba, para dibujar posiciones, operaciones y avisos
+    _estado = M.C.Cliente.estado
+
+    def estado_con_ejemplo(self):
+        d = _estado(self)
+        s = d["snap"]
+        pos = [dict(activo="ETH", estrategia="BREAKOUT", lado="long", pnl=6.82, asignado=120.0, capital=126.8,
+                    entrada=2961.4, precio=3002.15, stop=2948.1, riesgo=-1.2),
+               dict(activo="SOL", estrategia="TL", lado="short", pnl=-1.37, asignado=120.0, capital=118.6,
+                    entrada=187.22, precio=188.4, stop=191.05, riesgo=2.9)]
+        s["abiertas"] = [dict(f) for f in pos]
+        s["posiciones"] = pos + [dict(activo="BTC", estrategia="BREAKOUT", lado=None, asignado=120.0, capital=120.0,
+                                      entrada=None, precio=None, stop=None, riesgo=None, pnl=None)]
+        s.setdefault("ultimas_operaciones", [])
+        s["ultimas_operaciones"] = [dict(activo="BTC", estrategia="TL", lado="long", salida_t="2026-11-10 14:00",
+                                         motivo="stop", pnl=4.1)] + list(s["ultimas_operaciones"])
+        d["alertas"] = [dict(titulo="Abrió ETH Breakout", hora=time.time() - 3600, texto="Compra a 2.961,40.",
+                             leida=False)] + list(d.get("alertas") or [])
+        return d
+    M.C.Cliente.estado = estado_con_ejemplo
     app = M.ControlApp()
     resultado = {}
-    pasos = ["resumen", "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
+    pasos = ["resumen", lambda: app._abrir_menu(), lambda: app._cerrar_menu(), "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
              # asistente de Oracle y conexión de Binance (pantallas; la creación real se prueba en correr_pruebas)
              lambda: app._pantalla_codigo(), lambda: app._asistente_inicio(), lambda: app._asistente_clave(),
              lambda: app._asistente_clave("error de prueba"), lambda: app._asistente_progreso(),
@@ -49,6 +72,9 @@ try:
              lambda: app._asistente_listo(codigo, "127.0.0.1", "VM.Standard.E2.1.Micro"),
              lambda: app._pantalla_claves("demo"), lambda: None, lambda: app._pantalla_claves("real"), lambda: None,
              lambda: app._volver_inicio(), "resumen",
+             # modo claro
+             lambda: app._cambiar_tema("claro"), "posiciones", "decisiones", lambda: app._abrir_menu(),
+             lambda: app._cerrar_menu(), "servidor", lambda: app._cambiar_tema("oscuro"),
              # tarjeta de versión nueva (en la PC no se actualiza sola) y el refresco que no vuelve arriba
              lambda: (setattr(app, "version_app", "0.1"), app._ir("resumen")),
              lambda: (setattr(app, "version_app", None), setattr(Window, "size", (360, 300)), app._ir("estrategias")),
@@ -73,10 +99,13 @@ try:
         if pasos:
             p = pasos.pop(0)
             p() if callable(p) else app._ir(p)
+            if CAPTURAS:
+                n = resultado["foto"] = resultado.get("foto", 0) + 1
+                Clock.schedule_once(lambda dt: Window.screenshot(name=os.path.join(CAPTURAS, f"paso{n:02d}.png")), 1.1)
         else:
             app.stop()
     Clock.schedule_interval(paso, 1.5)
-    Clock.schedule_once(lambda dt: app.stop(), 90)
+    Clock.schedule_once(lambda dt: app.stop(), 150)
     app.run()
     assert app.datos and not app.error, app.error
     assert not errores, errores

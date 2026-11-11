@@ -39,14 +39,22 @@ jobs:
         run: |
           sudo apt-get install -y -qq xvfb libgl1 libmtdev1 >/dev/null
           pip install -q "kivy==2.3.0" "cryptography>=42"
-          xvfb-run -a python tests/prueba_android.py
+          mkdir -p capturas
+          CAPTURAS="$PWD/capturas" xvfb-run -a -s "-screen 0 1280x1024x24" python tests/prueba_android.py
+      - name: Subir las capturas de pantalla de la prueba
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas
+          path: capturas/
+          if-no-files-found: ignore
       - name: Probar las claves del asistente de Oracle con Java (como en el celular)
         run: |
           pip install -q "pyjnius==1.6.1"
           python tests/prueba_cripto_java.py
       - name: Preparar la app (cliente de la API, textos de avisos, Firebase, ícono y versión)
         run: |
-          cp cliente_api.py avisos.py oci_api.py android/
+          cp cliente_api.py avisos.py oci_api.py iconos.ttf android/
           if [ ! -f android/google-services.json ]; then
             echo "::error::Falta android/google-services.json (configuración del proyecto de Firebase)."; exit 1
           fi

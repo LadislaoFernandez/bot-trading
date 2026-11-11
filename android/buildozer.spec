@@ -3,7 +3,7 @@ title = Bot de trading
 package.name = botcontrol
 package.domain = io.github.ladislaofernandez
 source.dir = .
-source.include_exts = py,png,json
+source.include_exts = py,png,json,ttf
 version = 1.0
 requirements = python3,kivy==2.3.0,certifi
 orientation = portrait

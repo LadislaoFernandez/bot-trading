@@ -25,7 +25,8 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.switch import Switch
+from kivy.properties import BooleanProperty
+from kivy.uix.widget import Widget
 from kivy.uix.textinput import TextInput
 from kivy.utils import get_color_from_hex as hexc, platform
 
@@ -126,6 +127,30 @@ class Texto(Label):
                          valign="middle", size_hint_y=None, **kw)
         self.bind(width=lambda *_: setattr(self, "text_size", (self.width, None)))
         self.bind(texture_size=lambda *_: setattr(self, "height", self.texture_size[1] + dp(6)))
+        self.height = dp(6) if not texto else self.height  # sin texto no hay textura: que no quede con el alto por defecto
+
+
+class Interruptor(ButtonBehavior, Widget):
+    """Llave de encendido/apagado con los colores del tema (naranja encendida)."""
+    active = BooleanProperty(False)
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.bind(pos=self._dibujar, size=self._dibujar, active=self._dibujar)
+        self._dibujar()
+
+    def on_release(self):
+        self.active = not self.active
+
+    def _dibujar(self, *_):
+        self.canvas.clear()
+        an, al = dp(52), dp(30)
+        x, y = self.right - an - dp(4), self.center_y - al / 2
+        with self.canvas:
+            Color(*(ACENTO if self.active else BORDE)); RoundedRectangle(pos=(x, y), size=(an, al), radius=[al / 2])
+            Color(*(SOBRE_ACENTO if self.active and TEMA == "claro" else (1, 1, 1, 1)))
+            d = al - dp(6)
+            RoundedRectangle(pos=(x + an - d - dp(3) if self.active else x + dp(3), y + dp(3)), size=(d, d), radius=[d / 2])
 
 
 class Rotulo(Label):
@@ -480,8 +505,8 @@ class ControlApp(App):
             "La app necesita una clave de API de Oracle para crear la máquina. La generó recién: agregá esta clave "
             "pública en tu perfil de Oracle y pegá acá el texto que Oracle te muestra."))
         caja.add_widget(Texto(
-            "1. En cloud.oracle.com tocá el ícono de tu perfil (arriba a la derecha) → \"My profile\" (Mi perfil) → "
-            "sección \"API keys\" → \"Add API key\".\n"
+            "1. En cloud.oracle.com tocá el ícono de tu perfil (arriba a la derecha) › \"My profile\" (Mi perfil) › "
+            "sección \"API keys\" › \"Add API key\".\n"
             "2. Elegí \"Paste a public key\" (Pegar una clave pública), pegá la clave de abajo y tocá \"Add\".", 14))
         bc = Boton("Copiar", lambda: None)
         bc.bind(on_release=lambda *_: self._copiar(pub, bc))
@@ -645,8 +670,8 @@ class ControlApp(App):
         caja = self._pantalla("Conectar tu cuenta de Binance", (
             "Tu servidor generó una clave para Binance. La parte privada nunca sale del servidor: a Binance solo le das "
             "la parte pública, y a la app solo la API key que te devuelve Binance."))
-        caja.add_widget(Texto(f"1. Abrí la gestión de API de Binance{' demo' if modo == 'demo' else ''} → \"Crear API\" "
-                              "→ \"Autogenerada\".\n2. Pegá esta clave pública completa (con las líneas BEGIN y END):",
+        caja.add_widget(Texto(f"1. Abrí la gestión de API de Binance{' demo' if modo == 'demo' else ''} › \"Crear API\" "
+                              "› \"Autogenerada\".\n2. Pegá esta clave pública completa (con las líneas BEGIN y END):",
                               14))
         caja.add_widget(Boton("Abrir Binance", lambda: self._abrir_url(url)))
         bc = Boton("Copiar", lambda: None)
@@ -1322,7 +1347,7 @@ class ControlApp(App):
     def _fila_switch(self, caja, texto, activo, al_cambiar):
         fila = BoxLayout(size_hint_y=None, height=dp(48))
         fila.add_widget(Texto(texto, 15))
-        sw = Switch(active=bool(activo), size_hint_x=None, width=dp(90))
+        sw = Interruptor(active=bool(activo), size_hint_x=None, width=dp(70))
         sw.bind(active=lambda _s, v: al_cambiar(v))
         fila.add_widget(sw)
         caja.add_widget(fila)

@@ -41,6 +41,7 @@ try:
     from PySide6.QtWidgets import QApplication
     qa = QApplication.instance() or QApplication(sys.argv)
     import control
+    qa.setStyleSheet(control.QSS)  # el mismo estilo que pone main() en la app real
     w = control.Control(codigo)
     fin = time.time() + 20
     while time.time() < fin and (w.datos is None or "curva" not in w.detalles):

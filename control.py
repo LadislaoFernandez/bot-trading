@@ -6,6 +6,7 @@ piloto, cambiar el riesgo y el capital, manejar el laboratorio y actualizar el s
 
   pythonw control.py
 """
+import json
 import os
 import subprocess
 import sys
@@ -20,7 +21,7 @@ import app as U  # noqa: E402  (estilos y componentes de la app de escritorio)
 from app import (ACCENT, AMBER, FONT, FONT_TXT, GAIN, LOSS, MUTED, NB, QSS, TEXT, GraficoCapital, SinRueda,  # noqa: E402
                  aviso, boton, celda, chip, color_de, con_pasos, icono_app, lbl, panel, pct, preguntar, qss_flechas,
                  scroll, tabla, usd)
-from PySide6.QtCore import Qt, QTimer  # noqa: E402
+from PySide6.QtCore import QSize, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QFont, QIcon  # noqa: E402
 from PySide6.QtNetwork import QLocalSocket  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout,  # noqa: E402
@@ -240,9 +241,12 @@ class Control(QMainWindow):
         self.lbl_app = lbl(t("App {v}", v=K.VERSION), rol="muted", size=11); tv.addWidget(self.lbl_app)
         head.addLayout(tv, 1); v.addLayout(head); v.addSpacing(22)
         self.nav, grupo = [], QButtonGroup(self)
-        for i, n in enumerate([t("Resumen"), t("Posiciones"), t("Operaciones"), t("Estrategias"), t("Avisos"),
-                               t("Decisiones"), t("Registro"), t("Servidor")]):
-            b = QPushButton(n); b.setProperty("rol", "nav"); b.setCheckable(True); b.setCursor(Qt.PointingHandCursor)
+        for i, (clave, n) in enumerate([("resumen", t("Resumen")), ("posiciones", t("Posiciones")),
+                                        ("operaciones", t("Operaciones")), ("estrategias", t("Estrategias")),
+                                        ("avisos", t("Avisos")), ("decisiones", t("Decisiones")),
+                                        ("registro", t("Registro")), ("configuracion", t("Configuración"))]):
+            b = QPushButton("  " + n); b.setProperty("rol", "nav"); b.setCheckable(True); b.setCursor(Qt.PointingHandCursor)
+            b.setIcon(U.icono_nav(clave)); b.setIconSize(QSize(18, 18))
             b.clicked.connect(lambda _=False, i=i: self.ir_a(i)); grupo.addButton(b); v.addWidget(b); self.nav.append(b)
         v.addStretch()
         st = QHBoxLayout(); st.setSpacing(8)
@@ -270,24 +274,24 @@ class Control(QMainWindow):
     # ---------- páginas
     def _pag_resumen(self):
         w, v = self._pagina(t("Resumen"), t("El bot corriendo en el servidor: cuánto tiene, cómo viene y lo último que hizo."))
-        inner = QWidget(); iv = QVBoxLayout(inner); iv.setContentsMargins(0, 0, 0, 0); iv.setSpacing(16)
+        inner = QWidget(); iv = QVBoxLayout(inner); iv.setContentsMargins(0, 0, 0, 0); iv.setSpacing(14)
         self.banner = lbl("", size=13, wrap=True); self.banner.setVisible(False); iv.addWidget(self.banner)
-        hero = panel(); hv = QHBoxLayout(hero); hv.setContentsMargins(20, 16, 24, 16); hv.setSpacing(28)
-        sv = QVBoxLayout(); sv.setSpacing(4)
-        sv.addWidget(lbl(t("Saldo del bot"), rol="muted", size=12))
-        self.lbl_saldo = lbl("—", size=34, weight=600, family=FONT); sv.addWidget(self.lbl_saldo)
-        self.lbl_rend = lbl("", size=13); sv.addWidget(self.lbl_rend)
-        hv.addLayout(sv, 2)
-        g = QGridLayout(); g.setHorizontalSpacing(24); self.kpi = {}
-        for c, (k, tit) in enumerate([("cerrado", t("Resultado cerrado")), ("abierto", t("Resultado abierto")),
-                                      ("libre", t("Sin asignar")), ("ops", t("Operaciones cerradas"))]):
-            g.addWidget(lbl(tit, rol="muted", size=12), 0, c)
-            x = lbl("—", size=16, weight=600); g.addWidget(x, 1, c); self.kpi[k] = x
-        hv.addLayout(g, 3)
+        arriba = QHBoxLayout(); arriba.setSpacing(14)
+        # saldo con el gráfico de su evolución
+        hero = panel("acento"); hv = QVBoxLayout(hero); hv.setContentsMargins(20, 16, 20, 14); hv.setSpacing(4)
+        hv.addWidget(lbl(t("Saldo del bot"), rol="titulo"))
+        fs = QHBoxLayout(); fs.setSpacing(16)
+        self.lbl_saldo = lbl("—", size=32, weight=600, family=FONT); fs.addWidget(self.lbl_saldo)
+        fs.addStretch()
+        self.lbl_rend = lbl("", size=13); fs.addWidget(self.lbl_rend, 0, Qt.AlignBottom)
         self.btn_reanudar = boton(t("Reanudar"), "primario", self._reanudar); self.btn_reanudar.setVisible(False)
-        hv.addWidget(self.btn_reanudar)
-        mk = QVBoxLayout(); mk.setSpacing(8)
-        mk.addWidget(lbl(t("Mercado ahora"), rol="muted", size=13))
+        fs.addWidget(self.btn_reanudar, 0, Qt.AlignBottom)
+        hv.addLayout(fs)
+        self.grafico = GraficoCapital(); self.grafico.setMinimumHeight(190); hv.addWidget(self.grafico, 1)
+        arriba.addWidget(hero, 1)
+        # mercado
+        pm = panel("gris"); mk = QVBoxLayout(pm); mk.setContentsMargins(18, 16, 18, 14); mk.setSpacing(10)
+        mk.addWidget(lbl(t("Mercado ahora"), rol="titulo"))
         self.lbl_precios = {}
         for a in K.SYMBOLS:
             row = QHBoxLayout(); row.setSpacing(10)
@@ -297,16 +301,24 @@ class Control(QMainWindow):
             row.addWidget(pl); row.addWidget(cl)
             self.lbl_precios[a] = (pl, cl); mk.addLayout(row)
         self.lbl_precios_upd = lbl("", rol="muted", size=11, wrap=True); mk.addWidget(self.lbl_precios_upd)
-        mkw = QWidget(); mkw.setLayout(mk); mkw.setFixedWidth(270); hv.addWidget(mkw)
-        iv.addWidget(hero)
-        pg = panel(); gv = QVBoxLayout(pg); gv.setContentsMargins(18, 14, 18, 14)
-        gv.addWidget(lbl(t("Evolución del saldo"), rol="titulo"))
-        self.grafico = GraficoCapital(); gv.addWidget(self.grafico, 1); iv.addWidget(pg)
-        fila = QHBoxLayout(); fila.setSpacing(16)
-        pa = panel(); pav = QVBoxLayout(pa); pav.setContentsMargins(18, 14, 18, 14)
+        mk.addStretch()
+        pm.setFixedWidth(300); arriba.addWidget(pm)
+        iv.addLayout(arriba)
+        # cuadros con los números
+        fk = QHBoxLayout(); fk.setSpacing(14); self.kpi = {}
+        for k, tit in [("cerrado", t("Resultado cerrado")), ("abierto", t("Resultado abierto")),
+                       ("libre", t("Sin asignar")), ("ops", t("Operaciones cerradas"))]:
+            p = panel(); pv = QVBoxLayout(p); pv.setContentsMargins(16, 12, 16, 12); pv.setSpacing(3)
+            pv.addWidget(lbl(tit, rol="muted", size=12))
+            x = lbl("—", size=17, weight=600); pv.addWidget(x); self.kpi[k] = x
+            fk.addWidget(p, 1)
+        iv.addLayout(fk)
+        fila = QHBoxLayout(); fila.setSpacing(14)
+        self.panel_abiertas = pa = panel("verde"); pav = QVBoxLayout(pa); pav.setContentsMargins(18, 14, 18, 14)
+        pav.setSpacing(8)
         pav.addWidget(lbl(t("Posiciones abiertas"), rol="titulo"))
         self.lbl_abiertas = lbl("", size=13, wrap=True); pav.addWidget(self.lbl_abiertas); pav.addStretch()
-        pm = panel(); pmv = QVBoxLayout(pm); pmv.setContentsMargins(18, 14, 18, 14)
+        pm = panel(); pmv = QVBoxLayout(pm); pmv.setContentsMargins(18, 14, 18, 14); pmv.setSpacing(8)
         pmv.addWidget(lbl(t("Resultados por mes"), rol="titulo"))
         pmv.addWidget(lbl(t("El bot contra la simulación de Breakout y Resorte de tendencia en el mismo mes."),
                           rol="muted", size=12, wrap=True))
@@ -457,8 +469,8 @@ class Control(QMainWindow):
         return w
 
     def _pag_servidor(self):
-        w, v = self._pagina(t("Servidor"), t("Conexión, cuenta de Binance, riesgo, capital, laboratorio y actualizaciones "
-                                             "del bot en la nube."))
+        w, v = self._pagina(t("Configuración"), t("Apariencia, conexión, cuenta de Binance, riesgo, capital, laboratorio y "
+                                                  "actualizaciones del bot en la nube."))
         inner = QWidget(); iv = QVBoxLayout(inner); iv.setContentsMargins(0, 0, 0, 0); iv.setSpacing(16)
 
         def seccion(titulo, ayuda=None):
@@ -468,6 +480,13 @@ class Control(QMainWindow):
                 pv.addWidget(lbl(ayuda, rol="muted", size=12, wrap=True))
             iv.addWidget(p)
             return pv
+        pv = seccion(t("Apariencia"), t("Colores de la app. Al cambiarlos, la app se vuelve a abrir sola."))
+        h = QHBoxLayout(); h.setSpacing(10)
+        for clave, nombre in (("oscuro", t("Oscuro")), ("claro", t("Claro"))):
+            b = boton(nombre, "primario" if U.TEMA == clave else "accion", lambda _=False, c=clave: self._cambiar_tema(c))
+            b.setMinimumWidth(120); h.addWidget(b)
+        h.addStretch(); pv.addLayout(h)
+
         pv = seccion(t("Conexión"))
         self.lbl_con = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_con)
         h = QHBoxLayout(); h.addWidget(boton(t("Cambiar código de conexión"), accion=self._cambiar_codigo))
@@ -569,6 +588,20 @@ class Control(QMainWindow):
     def _guardar_capital(self):
         self._accion("capital", t("Capital guardado."), valor=float(self.sp_capital.value()))
 
+    def _cambiar_tema(self, tema):
+        if tema == U.TEMA:
+            return
+        try:
+            with open("ajustes.json", encoding="utf-8") as f:
+                aj = json.load(f)
+            aj = aj if isinstance(aj, dict) else {}
+        except (OSError, ValueError):
+            aj = {}
+        aj["tema"] = tema
+        with open("ajustes.json", "w", encoding="utf-8") as f:
+            json.dump(aj, f, ensure_ascii=False, indent=1)
+        self._reiniciar()
+
     def _copiar_codigo(self):
         """Para conectar otra app (el celular, otra PC) al mismo servidor: se pega en "Ya tengo un código"."""
         from PySide6.QtGui import QGuiApplication
@@ -621,7 +654,7 @@ class Control(QMainWindow):
         i = self.paginas.currentIndex()
         [self._p_resumen, self._p_posiciones, self._p_operaciones, self._p_estrategias, self._p_avisos,
          self._p_decisiones, self._p_registro, self._p_servidor][i](d)
-        self.nav[4].setText(t("Avisos ({n})", n=d.get("sin_leer")) if d.get("sin_leer") else t("Avisos"))
+        self.nav[4].setText("  " + (t("Avisos ({n})", n=d.get("sin_leer")) if d.get("sin_leer") else t("Avisos")))
 
     def _p_resumen(self, d):
         s = d["snap"]
@@ -654,7 +687,7 @@ class Control(QMainWindow):
         for k, v, c in (("cerrado", usd(s["realizado"], 2, True), color_de(s["realizado"])),
                         ("abierto", usd(s["abierto"], 2, True), color_de(s["abierto"])),
                         ("libre", usd(s["libre"]), TEXT), ("ops", str(s["resumen_ops"]["n"]), TEXT)):
-            self.kpi[k].setText(v); self.kpi[k].setStyleSheet(f"font-size:16px; font-weight:600; color:{c}")
+            self.kpi[k].setText(v); self.kpi[k].setStyleSheet(f"font-size:17px; font-weight:600; color:{c}")
         cur = (self.detalles.get("curva") or {}).get("curva") or []
         self.grafico.set_puntos([tuple(p) for p in cur], s["base"])
         ab = s.get("abiertas") or []

@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 tmp = tempfile.mkdtemp(prefix="servidor_prueba_")
 for f in os.listdir(RAIZ):
-    if f.endswith((".py", ".ico")):
+    if f.endswith((".py", ".ico", ".ttf")):
         shutil.copy2(os.path.join(RAIZ, f), tmp)
 shutil.copytree(os.path.join(RAIZ, "estrategias"), os.path.join(tmp, "estrategias"))
 shutil.copy2(os.path.join(RAIZ, "tests", "datos", "historial_ejemplo.json"), os.path.join(tmp, "historial_estrategias.json"))
@@ -32,6 +32,11 @@ try:
         except C.ErrorConexion:
             time.sleep(0.5)
     os.chdir(tmp)  # la app de control trabaja en su carpeta (como en Windows)
+    CAPTURAS = os.environ.get("CAPTURAS")  # carpeta: guarda una foto de cada pantalla
+    TEMA = os.environ.get("TEMA_PRUEBA", "oscuro")
+    if TEMA != "oscuro":
+        with open("ajustes.json", "w", encoding="utf-8") as f:
+            f.write('{"tema": "%s"}' % TEMA)
     sys.path.insert(0, tmp)
     from PySide6.QtWidgets import QApplication
     qa = QApplication.instance() or QApplication(sys.argv)
@@ -41,9 +46,15 @@ try:
     while time.time() < fin and (w.datos is None or "curva" not in w.detalles):
         qa.processEvents(); time.sleep(0.1)
     assert w.datos and not w.error, w.error
+    if CAPTURAS:
+        w.resize(1280, 820); w.show()
     for i in range(8):
         w.ir_a(i)
         w.pintado = -1; w._pintar(); qa.processEvents()
+        if CAPTURAS:
+            for _ in range(5):
+                qa.processEvents(); time.sleep(0.05)
+            w.grab().save(os.path.join(CAPTURAS, f"windows_{TEMA}_{i}.png"))
     assert "USDT" in w.lbl_saldo.text(), w.lbl_saldo.text()
     assert w.datos["servidor"] and w.tab_pos.rowCount() >= 0
     cl = C.Cliente(codigo)

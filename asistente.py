@@ -288,7 +288,7 @@ class DialogoClaves(QDialog):
         if self.modo == "real":
             from PySide6.QtWidgets import QInputDialog
             x, ok = QInputDialog.getText(self, t("Dinero real"), t(
-                "Vas a operar con DINERO REAL y podés perder dinero. Revisá el capital del modo real en Servidor.\n\n"
+                "Vas a operar con DINERO REAL y podés perder dinero. Revisá el capital del modo real en Configuración.\n\n"
                 "Escribí REAL para confirmar:"))
             if not ok or x.strip() != "REAL":
                 return self.accept()

@@ -715,7 +715,7 @@ class ControlApp(App):
     def _confirmar_real(self, txt):
         caja = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
         caja.add_widget(Texto(txt + "\n\nVas a operar con DINERO REAL y podés perder dinero. Revisá el capital del modo "
-                                    "real en Servidor.\n\nEscribí REAL para pasar a dinero real ahora:", 14))
+                                    "real en Configuración.\n\nEscribí REAL para pasar a dinero real ahora:", 14))
         e = Entrada(multiline=False, size_hint_y=None, height=dp(44), font_size=sp(15))
         caja.add_widget(e)
         fila = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(10))

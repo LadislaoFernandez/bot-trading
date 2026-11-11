@@ -60,12 +60,12 @@ import mercado as M  # noqa: E402
 import paper_trader as PT  # noqa: E402
 
 # ------------------------------------------------------------------ estilo
-PALETAS = {
-    "oscuro": dict(BG="#0D0D0F", SIDE="#08080A", PANEL="#17171B", PANEL2="#1F1F24", LINE="#2B2B31", TEXT="#F4F4F5",
-                   MUTED="#9C9CA6", ACCENT="#FF8A1F", ACCENT_SOFT="#3A2410", GAIN="#3DD68C", LOSS="#FF6B6B",
-                   AMBER="#F7C948", ON_ACCENT="#0D0D0F"),
-    "claro": dict(BG="#F5F5F4", SIDE="#FFFFFF", PANEL="#FFFFFF", PANEL2="#F0F0EF", LINE="#E4E4E2", TEXT="#18181B",
-                  MUTED="#6B6B70", ACCENT="#EA6C00", ACCENT_SOFT="#FFE8D4", GAIN="#16A34A", LOSS="#DC2626",
+PALETAS = {  # oscuro: azul noche; claro: gris azulado con tarjetas blancas (iguales en la app de Android)
+    "oscuro": dict(BG="#0A0F1C", SIDE="#080C17", PANEL="#141B2D", PANEL2="#1B2440", LINE="#22304D", TEXT="#EEF2FB",
+                   MUTED="#8E9AB5", ACCENT="#FF8A1F", ACCENT_SOFT="#3A2D2B", GAIN="#34D399", LOSS="#FB7185",
+                   AMBER="#F5B83D", ON_ACCENT="#0D0D0F"),
+    "claro": dict(BG="#EEF2F8", SIDE="#FFFFFF", PANEL="#FFFFFF", PANEL2="#F2F5FB", LINE="#D9E1EE", TEXT="#111A2E",
+                  MUTED="#5D6982", ACCENT="#EA6C00", ACCENT_SOFT="#FFE9D5", GAIN="#0F9F6E", LOSS="#E11D48",
                   AMBER="#B7791F", ON_ACCENT="#FFFFFF"),
 }
 TEMA = AJ.get("tema", "oscuro") if AJ.get("tema") in PALETAS else "oscuro"
@@ -89,14 +89,20 @@ QSS = f"""
 QMainWindow, #pagina {{ background: {BG}; }}
 QWidget#pagina {{ background: {BG}; }}
 #lateral {{ background: {SIDE}; border-right: 1px solid {LINE}; }}
-#panel {{ background: {PANEL}; border-radius: 10px; border: 1px solid {LINE}; }}
+#panel {{ background: {PANEL}; border-radius: 12px; border: 1px solid {LINE}; }}
+#panel[franja="acento"] {{ border-left: 3px solid {ACCENT}; }}
+#panel[franja="verde"] {{ border-left: 3px solid {GAIN}; }}
+#panel[franja="rojo"] {{ border-left: 3px solid {LOSS}; }}
+#panel[franja="ambar"] {{ border-left: 3px solid {AMBER}; }}
+#panel[franja="gris"] {{ border-left: 3px solid {MUTED}; }}
+#cuadro {{ background: {PANEL2}; border-radius: 10px; border: none; }}
 #panel QLabel, #panel QCheckBox {{ border: none; }}
 QLabel {{ background: transparent; }}
 QLabel[rol="muted"] {{ color: {MUTED}; }}
-QLabel[rol="titulo"] {{ font-family: "{FONT}"; font-size: 15px; font-weight: 600; }}
+QLabel[rol="titulo"] {{ font-size: 12px; font-weight: 700; color: {MUTED}; }}
 QLabel[rol="h1"] {{ font-family: "{FONT}"; font-size: 24px; font-weight: 600; }}
 QLabel[rol="num"] {{ background: {ACCENT}; color: {ON_ACCENT}; border-radius: 12px; font-weight: 700; font-size: 12px; }}
-QPushButton[rol="nav"] {{ text-align: left; padding: 9px 14px; border: none; border-radius: 8px;
+QPushButton[rol="nav"] {{ text-align: left; padding: 9px 12px; border: none; border-radius: 8px;
     font-size: 14px; color: {MUTED}; background: transparent; }}
 QPushButton[rol="nav"]:hover {{ background: {PANEL2}; color: {TEXT}; }}
 QPushButton[rol="nav"]:checked {{ background: {ACCENT_SOFT}; color: {ACCENT}; font-weight: 600; }}
@@ -249,6 +255,8 @@ def pct(v, d=2, signo=False):
 
 
 def lbl(texto="", rol=None, size=None, weight=None, family=None, color=None, wrap=False):
+    if rol == "titulo":  # títulos de sección: chicos, grises y en mayúsculas
+        texto = texto.upper()
     l = QLabel(texto)
     if rol:
         l.setProperty("rol", rol)
@@ -279,10 +287,59 @@ def boton(texto, rol="accion", accion=None, tip=None):
     return b
 
 
-def panel():
+def panel(franja=None):
+    """Tarjeta con borde; franja: "acento", "verde", "rojo", "ambar" o "gris" (línea de color a la izquierda)."""
     f = QFrame()
     f.setObjectName("panel")
+    if franja:
+        f.setProperty("franja", franja)
     return f
+
+
+def poner_franja(f, franja):
+    f.setProperty("franja", franja or "")
+    f.style().unpolish(f); f.style().polish(f)
+
+
+def cuadro(titulo, valor="—", color=None):
+    """Cuadrito con un dato (título chico y valor en negrita). Devuelve (cuadro, etiqueta del valor)."""
+    f = QFrame(); f.setObjectName("cuadro")
+    v = QVBoxLayout(f); v.setContentsMargins(14, 10, 14, 10); v.setSpacing(3)
+    v.addWidget(lbl(titulo, rol="muted", size=12))
+    x = lbl(valor, size=17, weight=600, color=color); v.addWidget(x)
+    return f, x
+
+
+_ICONOS_CARGADOS = []
+ICONOS = {"resumen": "\ue88a", "posiciones": "\ue53b", "operaciones": "\ue241", "estrategias": "\uea4b",
+          "avisos": "\ue7f4", "decisiones": "\uf184", "registro": "\uef42", "configuracion": "\ue8b8"}
+
+
+def icono_fuente(clave, color, tam=18):
+    """Ícono de la fuente Material Icons de Google (iconos.ttf, licencia Apache 2.0) en el color pedido."""
+    from PySide6.QtGui import QFontDatabase, QPixmap
+    if not _ICONOS_CARGADOS:
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "iconos.ttf")
+        fid = QFontDatabase.addApplicationFont(ruta) if os.path.exists(ruta) else -1
+        fam = QFontDatabase.applicationFontFamilies(fid) if fid >= 0 else []
+        _ICONOS_CARGADOS.append(fam[0] if fam else None)
+    fam = _ICONOS_CARGADOS[0]
+    pm = QPixmap(tam * 2, tam * 2); pm.setDevicePixelRatio(2); pm.fill(Qt.transparent)
+    if fam and clave in ICONOS:
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+        f = QFont(fam); f.setPixelSize(tam); p.setFont(f); p.setPen(QColor(color))
+        p.drawText(QRectF(0, 0, tam, tam), Qt.AlignCenter, ICONOS[clave]); p.end()
+    return pm
+
+
+def icono_nav(clave, tam=18):
+    """Ícono para un botón del menú: gris normal, naranja cuando está elegido."""
+    ic = QIcon()
+    ic.addPixmap(icono_fuente(clave, MUTED, tam), QIcon.Normal, QIcon.Off)
+    ic.addPixmap(icono_fuente(clave, ACCENT, tam), QIcon.Normal, QIcon.On)
+    ic.addPixmap(icono_fuente(clave, ACCENT, tam), QIcon.Active, QIcon.On)
+    ic.addPixmap(icono_fuente(clave, TEXT, tam), QIcon.Active, QIcon.Off)
+    return ic
 
 
 def chip(l, texto, col):

@@ -1,0 +1,38 @@
+# Saca fotos de las pantallas de las dos apps (Android con Kivy y Windows con Qt, modo oscuro y claro) usando los
+# servidores de prueba, y las guarda en la rama "capturas" para revisar el diseño sin compilar el APK ni el instalador.
+name: Capturas de pantalla
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capturas:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: App de Android (Kivy)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgl1 libmtdev1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 fonts-dejavu >/dev/null
+          pip install -q "kivy==2.3.0" "cryptography>=42" "PySide6-Essentials>=6.7"
+          mkdir -p capturas
+          CAPTURAS="$PWD/capturas" xvfb-run -a -s "-screen 0 1280x1024x24" python tests/prueba_android.py
+      - name: App de Windows (Qt), oscuro y claro
+        if: always()
+        run: |
+          CAPTURAS="$PWD/capturas" python tests/prueba_control.py
+          CAPTURAS="$PWD/capturas" TEMA_PRUEBA=claro python tests/prueba_control.py
+      - name: Guardar en la rama capturas
+        if: always()
+        run: |
+          cd capturas
+          ls *.png >/dev/null 2>&1 || exit 0
+          git init -q && git checkout -q -b capturas && git add .
+          git -c user.name=ci -c user.email=ci@localhost commit -qm "capturas $GITHUB_RUN_ID"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" capturas

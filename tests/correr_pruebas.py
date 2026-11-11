@@ -201,7 +201,21 @@ def prueba_binance(semilla, auto=False):
         time.time, time.sleep = t_real, s_real
 
 
+def prueba_breakeven():
+    import engine as E
+    S = E.STRATS["BREAKOUT"]
+    p = dict(side="long", e=100.0, stop=98.0, atr0=1.0)
+    E.asegurar_ganancia(S, p, 101.9, 1.0); assert p["stop"] == 98.0  # todavía no llegó a 2 ATR
+    E.asegurar_ganancia(S, p, 102.0, 1.0); assert abs(p["stop"] - 100.08) < 1e-9  # entrada + comisiones
+    E.asegurar_ganancia(S, p, 100.5, 1.0); assert abs(p["stop"] - 100.08) < 1e-9  # nunca vuelve atrás
+    c = dict(side="short", e=100.0, stop=102.0)  # posición vieja sin atr0: usa el ATR actual
+    E.asegurar_ganancia(S, c, 97.0, 1.5); assert abs(c["stop"] - 99.92) < 1e-9
+    q = dict(side="long", e=100.0, stop=98.0, atr0=1.0)
+    E.asegurar_ganancia(E.STRATS["CRUCE"], q, 110.0, 1.0); assert q["stop"] == 98.0  # Cruce no usa breakeven
+
+
 def prueba_reglas():
+    prueba_breakeven()
     import engine as E
     import reglas as R
     from equivalentes import EQUIVALENTES

@@ -144,7 +144,7 @@ def validar(d):
             for nk in ("n", "desfase", "b_desfase"):
                 if nk in c and not (isinstance(c[nk], int) and 0 <= c[nk] <= 48):
                     p.append(f"{k}: {nk} inválido")
-    for k, lo, hi in (("stop_atr", 0.5, 6), ("trail_atr", 0, 8), ("max_velas", 0, 200)):
+    for k, lo, hi in (("stop_atr", 0.5, 6), ("trail_atr", 0, 8), ("max_velas", 0, 200), ("be_atr", 0, 10)):
         v = d.get(k, 0)
         if not isinstance(v, (int, float)) or not lo <= v <= hi:
             p.append(f"{k} fuera de rango")
@@ -171,7 +171,7 @@ def compilar(d):
         return bool(cs) and all(cumple(D, c, i) for c in cs)
 
     return dict(entry=entry, exit=exit_, stop_atr=float(d.get("stop_atr", 2)), trail_atr=float(d.get("trail_atr", 0)),
-                max_bars=int(d.get("max_velas", 0)), datos=d)
+                max_bars=int(d.get("max_velas", 0)), be_atr=float(d.get("be_atr", 0)), datos=d)
 
 
 # ------------------------------------------------------------------ textos
@@ -222,6 +222,8 @@ def describir(d):
     stop = t("Stop a {s} ATR", s=num(d.get("stop_atr", 2), 1))
     if d.get("trail_atr"):
         stop += " " + t("que sigue al precio a {x} ATR", x=num(d["trail_atr"], 1))
+    if d.get("be_atr"):
+        stop += ", " + t("que pasa a la entrada con {x} ATR de ganancia", x=num(d["be_atr"], 1))
     if d.get("max_velas"):
         stop += ", " + t("o sale a las {n} horas", n=d["max_velas"])
     partes.append(stop + ".")

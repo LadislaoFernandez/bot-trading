@@ -238,9 +238,15 @@ def exit_ST(D, i, side):
 NOMBRES = {"BREAKOUT": "Breakout", "TL": "Resorte de tendencia", "MR": "Reversión a la media", "RSI2": "RSI(2)",
            "CRUCE": "Cruce de medias", "SUPERTREND": "Supertrend"}  # se completa con el catálogo (catalogo.py)
 
+# be_atr: cuando la operación lleva esa ganancia (en ATR de la entrada), el stop pasa a la entrada + comisiones y ya no
+# puede cerrar en pérdida. Simulado 2022-2026: mejora Breakout (252 -> 288 por cada 100) y deja igual al Resorte;
+# en Cruce y Supertrend empeora, así que ahí no se usa.
+BREAKEVEN_MARGEN = 0.0008  # entrada (maker 0,02 %) + salida del stop (taker 0,05 %) + un poco de margen
+
 STRATS = {
-    "TL": dict(entry=entry_TL, exit=exit_TL, stop_atr=2.0, trail_atr=3.0, max_bars=0),
-    "BREAKOUT": dict(entry=entry_BREAKOUT, exit=lambda D, i, s: False, stop_atr=2.0, trail_atr=3.0, max_bars=0),
+    "TL": dict(entry=entry_TL, exit=exit_TL, stop_atr=2.0, trail_atr=3.0, max_bars=0, be_atr=2.0),
+    "BREAKOUT": dict(entry=entry_BREAKOUT, exit=lambda D, i, s: False, stop_atr=2.0, trail_atr=3.0, max_bars=0,
+                     be_atr=2.0),
     "MR": dict(entry=entry_MR, exit=exit_MR, stop_atr=2.0, trail_atr=0.0, max_bars=24),
     "RSI2": dict(entry=entry_RSI2, exit=exit_RSI2, stop_atr=3.0, trail_atr=0.0, max_bars=20),
     "CRUCE": dict(entry=entry_CRUCE, exit=exit_CRUCE, stop_atr=2.0, trail_atr=3.0, max_bars=0),
@@ -311,6 +317,18 @@ def explain(D, i, strat):
 
 
 # ---------------------------------------------------------------- posición
+def asegurar_ganancia(S, p, cierre, atr):
+    """Breakeven: con be_atr de ganancia, el stop sube (o baja, en cortos) hasta la entrada más las comisiones."""
+    be = S.get("be_atr", 0)
+    if not be:
+        return
+    atr0 = p.get("atr0") or atr  # posiciones abiertas antes de la 1.26 no guardaban el ATR de la entrada
+    lg = p["side"] == "long"
+    if ((cierre - p["e"]) if lg else (p["e"] - cierre)) >= be * atr0:
+        bep = p["e"] * (1 + BREAKEVEN_MARGEN) if lg else p["e"] * (1 - BREAKEVEN_MARGEN)
+        p["stop"] = max(p["stop"], bep) if lg else min(p["stop"], bep)
+
+
 class Sleeve:
     """Una estrategia en un activo, con su propio capital (compone sus ganancias)."""
 
@@ -336,7 +354,7 @@ class Sleeve:
         q = min(self.equity * self.risk / dist, self.equity * self.lev / e)
         self.equity -= q * e * self.fee
         self.comisiones += q * e * self.fee; self.ordenes += 1
-        self.pos = dict(side=side, q=q, e=e, stop=e - dist if side == "long" else e + dist, bars=0, t=t)
+        self.pos = dict(side=side, q=q, e=e, stop=e - dist if side == "long" else e + dist, bars=0, t=t, atr0=atr)
 
     def close(self, px, t, reason):
         p = self.pos
@@ -371,6 +389,7 @@ class Sleeve:
             if self.S["trail_atr"] > 0:
                 d = self.S["trail_atr"] * ATR[i]
                 p["stop"] = max(p["stop"], C[i] - d) if p["side"] == "long" else min(p["stop"], C[i] + d)
+            asegurar_ganancia(self.S, p, C[i], ATR[i])
         sig = self.S["entry"](D, i) if self.activa else None
         mb = self.S.get("max_bars", 0)
         if sig and (not self.pos or self.pos["side"] != sig):

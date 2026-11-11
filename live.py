@@ -301,7 +301,7 @@ def step_live(br, st):
                         e = r["precio"]
                         stop = e - dist if pend == "long" else e + dist
                         sl.equity -= r["comision"]
-                        sl.pos = dict(side=pend, q=r["cantidad"], e=e, stop=stop, bars=0, t=ahora)
+                        sl.pos = dict(side=pend, q=r["cantidad"], e=e, stop=stop, bars=0, t=ahora, atr0=D["ATR"][i])
                         try:
                             sl.pos["stop_id"] = br.poner_stop(sym, pend, r["cantidad"], stop)
                         except Exception as ex_:

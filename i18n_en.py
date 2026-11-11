@@ -954,4 +954,6 @@ EN = {
     'Copiar código de conexión': 'Copy connection code',
     'Código de conexión': 'Connection code',
     'Copiado. Pegalo en la otra app (en Android: la pantalla "Conectar con el servidor"; en Windows: "Ya tengo un código"). Guardalo como una contraseña: con este código se controla el bot.': 'Copied. Paste it in the other app (on Android: the "Connect to the server" screen; on Windows: "I already have a code"). Keep it like a password: this code controls the bot.',
+    'que pasa a la entrada con {x} ATR de ganancia': 'that moves to the entry after {x} ATR of profit',
+    'Breakout y Resorte de tendencia aseguran la operación: cuando lleva 2 ATR de ganancia, el stop pasa a la entrada más las comisiones y ya no puede cerrar en pérdida (simulado 2022-2026: Breakout de 250 a 281 por cada 100). Cruce y Supertrend siguen igual, porque ahí empeoraba.': 'Breakout and Trend spring now lock in the trade: once it is 2 ATR in profit, the stop moves to the entry plus fees and it can no longer close at a loss (simulated 2022-2026: Breakout from 250 to 281 per 100). Crossover and Supertrend stay the same, because there it was worse.',
 }

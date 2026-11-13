@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import config as K
 from i18n import num, t
 from data import exchange, fetch_recent
-from engine import Sleeve, explain, prepare
+from engine import MOVIMIENTO_MINIMO_STOP, STRATS, Sleeve, explain, prepare, stop_seguido
 
 
 def now_ms():
@@ -324,6 +324,7 @@ def step(ex, st):
     aplicar_asignacion(st, act, asig)
     aplicar_capital(st)  # si se bajaron montos para bajar el capital, recién ahora hay sin asignar para sacarlo
     prices, total, items, vela_txt = {}, 0.0, [], None
+    revisar_stops_5m(ex, st)  # stops tocados desde la última revisión de 10 minutos (con el stop ya movido)
     for asset, sym in K.SYMBOLS.items():
         forming, D = velas[asset]
         last_done = st["last_bar"].get(asset)
@@ -344,8 +345,14 @@ def step(ex, st):
             sl = Sleeve(s, K.RISK_PER_TRADE, K.MAX_LEVERAGE, K.FEE, K.SLIPPAGE, ss["equity"], ss["pos"], ss["pending"],
                         activa=activa)
             antes = dict(ss["pos"]) if ss["pos"] else None
+            p0 = sl.pos
+            movido = p0["stop"] if p0 else None
+            if p0:  # el máximo/mínimo de la vela se compara con el stop que había al empezarla (lo de después ya lo
+                p0["stop"] = p0.get("stop_vela", movido)  # revisó revisar_stops_5m con el stop movido)
             for i in new_idx:
                 sl.on_bar(D, i)
+            if p0 is not None and sl.pos is p0:
+                p0["stop"] = max(p0["stop"], movido) if p0["side"] == "long" else min(p0["stop"], movido)
             abrio = None
             if sl.pending and forming:  # la orden se coloca ya, a la apertura de la vela en curso
                 before = sl.pos["side"] if sl.pos else None
@@ -359,11 +366,15 @@ def step(ex, st):
 
             if new_idx:  # explicación de la decisión en la última vela cerrada
                 items.append(describir(asset, s, explain(D, new_idx[-1], s) if activa else [], sl, abrio, antes, activa))
+            if sl.pos:
+                sl.pos["stop_vela"] = sl.pos["stop"]
             ss.update(equity=sl.equity, pos=sl.pos, pending=sl.pending)
             sumar_ordenes(st, dict(ordenes=sl.ordenes, comision=sl.comisiones))
             total += sl.mark(prices[asset])
         if new_idx:
             st["last_bar"][asset] = D["T"][new_idx[-1]]
+        if D["n"]:
+            st.setdefault("atr", {})[asset] = D["ATR"][D["n"] - 1]  # para los ajustes del stop entre velas
 
     # capital de partes sin posición que no se procesaron, y capital sin asignar
     for k, v in st["sleeves"].items():
@@ -384,6 +395,80 @@ def step(ex, st):
     append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2),
                                 "base": round(base_capital(st), 2)}], ["hora", "total", "base"])
     return total, prices
+
+
+def revisar_stops_5m(ex, st):
+    """Modo simulado: con las velas de 5 minutos desde el último control, cierra las posiciones cuyo stop (ya movido
+    por los ajustes de 10 minutos) fue tocado, como lo haría Binance."""
+    ahora = now_ms()
+    for asset, sym in K.SYMBOLS.items():
+        claves = [k for k, v in st["sleeves"].items() if k.startswith(asset + "_") and v["pos"]]
+        desde = st.setdefault("control_5m", {}).get(asset) or ((st["last_bar"].get(asset) or 0) + K.BAR_MS)
+        if not claves:
+            st["control_5m"][asset] = ahora // 300000 * 300000
+            continue
+        velas = [r for r in fetch_recent(ex, sym, "5m", 30) if r[0] >= desde and r[0] + 300000 <= ahora]
+        for r in velas:
+            _t, o, h, l, _c = r[:5]
+            for k in claves:
+                ss = st["sleeves"][k]
+                p = ss["pos"]
+                if not p or r[0] < p["t"]:
+                    continue
+                lg = p["side"] == "long"
+                if (lg and l <= p["stop"]) or (not lg and h >= p["stop"]):
+                    sl = Sleeve(k.split("_", 1)[1], K.RISK_PER_TRADE, K.MAX_LEVERAGE, K.FEE, K.SLIPPAGE, ss["equity"], p,
+                                None)
+                    sl.close(min(p["stop"], o) if lg else max(p["stop"], o), r[0], "stop")
+                    for tr in sl.closed:
+                        trc = dict(tr, posicion=k, entrada_t=fmt_t(tr["entrada_t"]), salida_t=fmt_t(tr["salida_t"]))
+                        append_csv(K.TRADES_FILE, [trc], ["posicion", "side", "entrada_t", "salida_t", "entrada", "salida",
+                                                          "cantidad", "pnl", "motivo", "capital"])
+                        log(t("{k}: tocó el stop de la {l} a {p} ({r} USDT).", k=k, l=lado(p["side"]), p=_pr(tr["salida"]),
+                              r=num(tr["pnl"], 2, True)))
+                    sumar_ordenes(st, dict(ordenes=sl.ordenes, comision=sl.comisiones))
+                    ss.update(equity=sl.equity, pos=None, pending=None)
+        if velas:
+            st["control_5m"][asset] = velas[-1][0] + 300000
+
+
+def mover_stops(st, precio_de, mover):
+    """Ajuste de 10 minutos: con el último precio y el ATR de la última vela de 1h cerrada, sube (o baja, en ventas)
+    los stops con las reglas de siempre. mover(clave, posición, stop nuevo) aplica el cambio (en vivo, en Binance) y
+    devuelve True si se pudo. Solo mueve si el cambio supera MOVIMIENTO_MINIMO_STOP."""
+    movidos = 0
+    for k, ss in st["sleeves"].items():
+        p = ss["pos"]
+        asset, est = k.split("_", 1)
+        atr = (st.get("atr") or {}).get(asset)
+        if not p or not atr or est not in STRATS:
+            continue
+        precio = precio_de(asset)
+        if not precio:
+            continue
+        nuevo = stop_seguido(STRATS[est], p, precio, atr)
+        if abs(nuevo - p["stop"]) / p["e"] <= MOVIMIENTO_MINIMO_STOP:
+            continue
+        antes = p["stop"]
+        if mover(k, p, nuevo):
+            p["stop"] = nuevo
+            movidos += 1
+            log(t("{k}: stop de la {l} movido de {a} a {n} (ajuste entre velas, precio {p}).", k=k, l=lado(p["side"]),
+                  a=_pr(antes), n=_pr(nuevo), p=_pr(precio)))
+    return movidos
+
+
+def ajustar_stops(ex, st):
+    """Modo simulado: revisa los stops tocados en las velas de 5 minutos y después los ajusta con el último precio."""
+    revisar_stops_5m(ex, st)
+    precios = {}
+
+    def precio_de(asset):
+        if asset not in precios:
+            precios[asset] = (fetch_recent(ex, K.SYMBOLS[asset], "5m", 2) or [[0, 0, 0, 0, None]])[-1][4]
+        return precios[asset]
+    mover_stops(st, precio_de, lambda k, p, nuevo: True)
+    save_state(st)
 
 
 def show(st, prices=None, total=None):
@@ -407,9 +492,11 @@ def show(st, prices=None, total=None):
 STATUS = {"estado": "detenido", "inicio": None, "ultima_revision": None, "proxima_revision": None, "ultimo_error": None}
 
 
-def run_loop(st, stop_event=None, on_update=None, wake_event=None, paso=None, cliente=None):
+def run_loop(st, stop_event=None, on_update=None, wake_event=None, paso=None, cliente=None, ajuste=None):
     """Loop principal. stop_event detiene el bot; wake_event fuerza una revisión inmediata.
-    paso/cliente: en modo demo o real, la función de un paso en vivo y la conexión a Binance."""
+    paso/cliente: en modo demo o real, la función de un paso en vivo y la conexión a Binance.
+    ajuste: función (cliente, st) que ajusta los stops cada 10 minutos entre cierres de vela."""
+    from engine import CADA_AJUSTE_STOP
     import threading
     stop_event = stop_event or threading.Event()
     wake_event = wake_event or threading.Event()
@@ -438,8 +525,18 @@ def run_loop(st, stop_event=None, on_update=None, wake_event=None, paso=None, cl
         log(t("Próxima revisión en {m} min.", m=f"{wait / 60:.0f}"))
         wake_event.clear()
         deadline = time.time() + wait
+        prox_ajuste = (time.time() // CADA_AJUSTE_STOP + 1) * CADA_AJUSTE_STOP + 20
         while not stop_event.is_set() and not wake_event.is_set() and time.time() < deadline:
-            stop_event.wait(min(1.0, max(0.0, deadline - time.time())))
+            if ok and ajuste and time.time() >= prox_ajuste:
+                prox_ajuste += CADA_AJUSTE_STOP
+                if prox_ajuste - CADA_AJUSTE_STOP < deadline - 120:  # el de la hora en punto lo hace la revisión
+                    try:
+                        ajuste(ex, st)
+                        if on_update:
+                            on_update(st, None, None)
+                    except Exception as e:
+                        log(t("No se pudo ajustar los stops ({e}); se reintenta en 10 minutos.", e=f"{type(e).__name__}: {e}"[:200]))
+            stop_event.wait(min(1.0, max(0.0, min(deadline, prox_ajuste) - time.time())))
         if wake_event.is_set() and not stop_event.is_set():
             log(t("Revisión manual pedida desde la aplicación."))
     STATUS.update(estado="detenido", proxima_revision=None)

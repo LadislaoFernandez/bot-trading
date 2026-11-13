@@ -152,6 +152,12 @@ def prueba_binance(semilla, auto=False):
             fake.procesar_vela("BTC/USDT:USDT", ROWS[k - 1]); fake.procesar_vela("SOL/USDT:USDT", rows2[k - 1])
             clock["t"] = ROWS[k][0] + 20000
             L.step_live(br, st)
+            clock["t"] += 600000  # ajuste de 10 minutos entre velas: mueve stops en Binance sin dejar huérfanos
+            libro = br.libro
+            cierre = {"BTC/USDT:USDT": ROWS[k][4], "SOL/USDT:USDT": rows2[k][4]}  # precio a mitad de la vela
+            br.libro = lambda sym: (cierre[sym] * 0.9999, cierre[sym] * 1.0001)
+            L.ajustar_stops(br, st)
+            br.libro = libro
             for a, sym in K.SYMBOLS.items():
                 for lado in ("long", "short"):
                     q_bot = sum(v["pos"]["q"] for kk, v in st["sleeves"].items()
@@ -164,6 +170,7 @@ def prueba_binance(semilla, auto=False):
             abiertos = [o for o in fake.orders.values() if o.get("stopord") and o["status"] == "open"]
             assert len(abiertos) == sum(1 for v in st["sleeves"].values() if v["pos"]), (k, "stops huérfanos")
             avisados += AV.nuevos(SV.eventos_operaciones("."), vistos)
+        assert any("ajuste entre velas" in m for m in logs), "nunca movió un stop entre velas"
         n = L.cerrar_todo(br, st)
         assert not {k: v for k, v in fake.pos.items() if v > 1e-9}
         avisados += AV.nuevos(SV.eventos_operaciones("."), vistos)
@@ -214,8 +221,62 @@ def prueba_breakeven():
     E.asegurar_ganancia(E.STRATS["CRUCE"], q, 110.0, 1.0); assert q["stop"] == 98.0  # Cruce no usa breakeven
 
 
+def prueba_stop_10min():
+    """Ajuste del stop entre cierres de vela: mismas reglas, solo si se mueve más del 0,1 %, y en modo simulado el stop
+    movido se controla con las velas de 5 minutos."""
+    import engine as E
+    import paper_trader as PT
+    S = E.STRATS["BREAKOUT"]
+    p = dict(side="long", e=100.0, stop=98.0, atr0=1.0)
+    assert E.stop_seguido(S, p, 105.0, 1.0) == 102.0 and p["stop"] == 98.0  # trailing a 3 ATR; no toca p
+    assert abs(E.stop_seguido(S, p, 102.5, 1.0) - 100.08) < 1e-9  # breakeven a +2 ATR
+    assert E.stop_seguido(S, dict(p, stop=103.0), 101.0, 1.0) == 103.0  # nunca retrocede
+    log, csv = PT.log, PT.append_csv
+    PT.log, PT.append_csv = (lambda *a, **k: None), (lambda *a, **k: None)
+    try:
+        st = dict(atr={"BTC": 1.0, "ETH": 1.0}, sleeves={
+            "BTC_BREAKOUT": dict(equity=100.0, pending=None, pos=dict(side="long", e=100.0, stop=98.0, atr0=1.0, q=1.0, t=0)),
+            "ETH_TL": dict(equity=100.0, pending=None, pos=dict(side="short", e=100.0, stop=102.0, atr0=1.0, q=1.0, t=0)),
+            "SOL_BREAKOUT": dict(equity=100.0, pending=None, pos=None)})
+        precio = {"BTC": 101.0, "ETH": 100.05}
+        pedidos = []
+        assert PT.mover_stops(st, precio.get, lambda k, q, n: pedidos.append((k, n)) or True) == 0  # no hay cambio
+        precio["BTC"] = 101.05  # 98,05: menos del 0,1 % de la entrada → no se manda
+        assert PT.mover_stops(st, precio.get, lambda k, q, n: True) == 0
+        precio["BTC"] = 104.0
+        assert PT.mover_stops(st, precio.get, lambda k, q, n: pedidos.append((k, n)) or True) == 1
+        assert pedidos == [("BTC_BREAKOUT", 101.0)] and st["sleeves"]["BTC_BREAKOUT"]["pos"]["stop"] == 101.0
+        precio["BTC"] = 106.0  # Binance no aceptó la orden: el stop queda como estaba
+        assert PT.mover_stops(st, precio.get, lambda k, q, n: False) == 0
+        assert st["sleeves"]["BTC_BREAKOUT"]["pos"]["stop"] == 101.0
+
+        # simulado: la vela de 5 minutos que toca el stop movido cierra la posición a ese precio
+        h0 = 1_700_000_000_000 // 3600000 * 3600000
+        st["last_bar"] = {"BTC": h0 - 3600000, "ETH": h0 - 3600000, "SOL": h0 - 3600000}
+
+        class Ex:
+            def fetch_ohlcv(self, sym, tf, limit=0):
+                if sym.startswith("BTC"):
+                    return [[h0, 103, 104, 102, 103.5, 1], [h0 + 300000, 103.5, 103.6, 100.9, 101.2, 1],
+                            [h0 + 600000, 101, 101.5, 100.5, 101, 1]]
+                return [[h0, 100, 100.2, 99.9, 100, 1]]
+        ahora = PT.now_ms
+        PT.now_ms = lambda: h0 + 900000
+        try:
+            PT.revisar_stops_5m(Ex(), st)
+        finally:
+            PT.now_ms = ahora
+        assert st["sleeves"]["BTC_BREAKOUT"]["pos"] is None, "el stop movido a 101 se tocó con el mínimo de 100,9"
+        assert 100.5 < st["sleeves"]["BTC_BREAKOUT"]["equity"] < 101.1, st["sleeves"]["BTC_BREAKOUT"]["equity"]
+        assert st["sleeves"]["ETH_TL"]["pos"] is not None  # el máximo de 100,2 no llega al stop de 102
+        assert st["control_5m"]["BTC"] == h0 + 900000
+    finally:
+        PT.log, PT.append_csv = log, csv
+
+
 def prueba_reglas():
     prueba_breakeven()
+    prueba_stop_10min()
     import engine as E
     import reglas as R
     from equivalentes import EQUIVALENTES

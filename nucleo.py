@@ -132,7 +132,7 @@ class Bot:
         def correr():
             st = PT.load_state()
             if modo == "simulado":
-                PT.run_loop(st, stop, None, wake); return
+                PT.run_loop(st, stop, None, wake, ajuste=PT.ajustar_stops); return
             cred = CL.cargar(modo)
             if not cred:
                 PT.STATUS.update(estado="detenido",
@@ -153,7 +153,7 @@ class Bot:
                 PT.log((t("No se pudo conectar a Binance ({m}):", m=t(K.NOMBRE_MODO[modo])) + f" {e}")[:300])
                 return
             self.broker = br
-            PT.run_loop(st, stop, None, wake, paso=LV.step_live, cliente=br)
+            PT.run_loop(st, stop, None, wake, paso=LV.step_live, cliente=br, ajuste=LV.ajustar_stops)
 
         self.thread = threading.Thread(target=correr, daemon=True)
         self.thread.start()

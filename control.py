@@ -332,7 +332,7 @@ class Control(QMainWindow):
         w, v = self._pagina(t("Posiciones"), t(
             "Cada estrategia en cada moneda: cuánto tiene y si tiene una posición abierta. "
             "No hay un precio objetivo fijo. El stop arranca a 2 ATR de la entrada (ATR: lo que se mueve el precio en una "
-            "vela típica). Cuando el precio va a favor, el stop lo sigue a 3 ATR del último cierre y nunca retrocede, así las "
+            "vela típica). Cuando el precio va a favor, el stop lo sigue a 3 ATR (lo revisa cada 10 minutos) y nunca retrocede, así las "
             "ganancias corren. Además, cuando la operación lleva 2 ATR de ganancia, el stop pasa a la entrada más las "
             "comisiones: desde ahí ya no puede cerrar en pérdida. Las estrategias del laboratorio usan sus propias reglas (se "
             "ven en Estrategias)."

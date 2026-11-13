@@ -249,6 +249,7 @@ def step_live(br, st):
                          p=PT._pr(px), r=num(tr["pnl"], 2, True)))
                 _guardar_trade(k, tr)
 
+        st.setdefault("atr", {})[asset] = D["ATR"][i]  # para los ajustes del stop entre velas
         if not nueva:
             for s in PT.NOMBRES:
                 ss = st["sleeves"][f"{asset}_{s}"]
@@ -376,6 +377,39 @@ def step_live(br, st):
     PT.append_csv(K.EQUITY_FILE, [{"hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "total": round(total, 2),
                                    "base": round(PT.base_capital(st), 2)}], ["hora", "total", "base"])
     return total, prices
+
+
+def ajustar_stops(br, st):
+    """Cada 10 minutos entre cierres de vela: sube (o baja, en ventas) los stops en Binance con las reglas de siempre.
+    Primero pone el stop nuevo y después cancela el viejo, así la posición nunca queda sin stop. No toca las
+    posiciones que Binance ya cerró (eso lo registra la revisión de cada hora)."""
+    reales = br.posiciones(list(K.SYMBOLS.values()))
+    precios = {}
+
+    def precio_de(asset):
+        if asset not in precios:
+            bid, ask = br.libro(K.SYMBOLS[asset])
+            precios[asset] = (bid + ask) / 2
+        return precios[asset]
+
+    def mover(k, p, nuevo):
+        asset = k.split("_", 1)[0]
+        sym = K.SYMBOLS[asset]
+        esperado = sum(v["pos"]["q"] for kk, v in st["sleeves"].items()
+                       if kk.startswith(asset + "_") and v["pos"] and v["pos"]["side"] == p["side"])
+        if reales.get((sym, p["side"]), 0.0) < esperado * 0.999:
+            return False  # Binance ya ejecutó algún stop de esta moneda: lo resuelve la próxima revisión
+        try:
+            nid = br.poner_stop(sym, p["side"], p["q"], nuevo)
+        except Exception as e:
+            PT.log(t("{k}: no se pudo mover el stop ({e}).", k=k, e=type(e).__name__))
+            return False
+        if p.get("stop_id"):
+            br.cancelar_stop(sym, p["stop_id"])
+        p["stop_id"] = nid
+        return True
+    if PT.mover_stops(st, precio_de, mover):
+        PT.save_state(st)
 
 
 def _guardar_trade(key, tr):

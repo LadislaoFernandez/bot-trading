@@ -329,6 +329,21 @@ def asegurar_ganancia(S, p, cierre, atr):
         p["stop"] = max(p["stop"], bep) if lg else min(p["stop"], bep)
 
 
+CADA_AJUSTE_STOP = 600  # segundos: entre cierres de vela, el stop se revisa cada 10 minutos
+MOVIMIENTO_MINIMO_STOP = 0.001  # cambios menores al 0,1 % del precio de entrada no se mandan a Binance
+
+
+def stop_seguido(S, p, precio, atr):
+    """Stop con las reglas de siempre (trailing a trail_atr del precio y breakeven a be_atr de ganancia) para el
+    precio dado y el ATR de la última vela de 1h cerrada. Nunca retrocede. No modifica p."""
+    q = dict(p)
+    if S["trail_atr"] > 0:
+        d = S["trail_atr"] * atr
+        q["stop"] = max(q["stop"], precio - d) if q["side"] == "long" else min(q["stop"], precio + d)
+    asegurar_ganancia(S, q, precio, atr)
+    return q["stop"]
+
+
 class Sleeve:
     """Una estrategia en un activo, con su propio capital (compone sus ganancias)."""
 

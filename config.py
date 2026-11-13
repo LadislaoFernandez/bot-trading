@@ -38,9 +38,14 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.30"
+VERSION = "1.31"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.31", "13/11/2026", [
+        "El stop se ajusta cada 10 minutos (antes solo al cierre de cada vela de 1 hora), con las mismas reglas: lo "
+        "sigue a 3 ATR del precio, pasa a la entrada más comisiones con 2 ATR de ganancia y nunca retrocede. En Binance "
+        "primero pone el stop nuevo y después cancela el viejo. Las entradas y salidas siguen en velas de 1 hora.",
+    ]),
     ("1.30", "11/11/2026", [
         "Las versiones nuevas se detectan mucho más rápido: el servidor y la app de Windows buscan cada 2 minutos (antes "
         "cada hora), y la app de Android le pregunta directo a GitHub al abrirse, sin esperar al servidor.",

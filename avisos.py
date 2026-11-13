@@ -12,6 +12,21 @@ URL_APK = f"https://github.com/{REPO}/releases/latest/download/BotTrading-Contro
 def ultima_version_github(repo=REPO, timeout=10, contexto=None):
     """Versión de la última publicación en GitHub ("1.29"), o None. Mira a dónde redirige /releases/latest: no usa la
     API de GitHub (que limita a 60 consultas por hora), así se puede preguntar seguido."""
+    destino = _redirige(f"https://github.com/{repo}/releases/latest", timeout, contexto)
+    return destino.rsplit("/tag/", 1)[1].strip("/").lstrip("vV") if destino and "/tag/" in destino else None
+
+
+def version_apk_github(timeout=10, contexto=None):
+    """Versión del APK que ya se puede bajar ("1.31"), o None si la última publicación todavía no tiene el APK (se
+    agrega unos minutos después del resto). Mira a dónde redirige el link fijo de descarga."""
+    destino = _redirige(URL_APK, timeout, contexto)
+    if not destino or "/download/" not in destino:
+        return None
+    return destino.split("/download/", 1)[1].split("/", 1)[0].lstrip("vV") or None
+
+
+def _redirige(url, timeout=10, contexto=None):
+    """A dónde redirige la URL (sin seguirla), o None si no existe (404)."""
     import ssl
     import urllib.error
     import urllib.request
@@ -21,16 +36,16 @@ def ultima_version_github(repo=REPO, timeout=10, contexto=None):
             return None
     abrir = urllib.request.build_opener(_SinSeguir, urllib.request.HTTPSHandler(
         context=contexto or ssl.create_default_context()))
-    req = urllib.request.Request(f"https://github.com/{repo}/releases/latest", method="HEAD",
-                                 headers={"User-Agent": "bot-trading"})
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "bot-trading"})
     try:
         with abrir.open(req, timeout=timeout) as r:
-            destino = r.headers.get("Location", "") or r.geturl()
+            return r.headers.get("Location", "") or r.geturl()
     except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
         if e.code not in (301, 302, 303, 307, 308):
             raise
-        destino = e.headers.get("Location", "")
-    return destino.rsplit("/tag/", 1)[1].strip("/").lstrip("vV") if "/tag/" in destino else None
+        return e.headers.get("Location", "")
 
 
 def _num(v, d=2, signo=False):

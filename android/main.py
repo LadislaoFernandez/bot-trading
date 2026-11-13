@@ -871,7 +871,10 @@ class ControlApp(App):
                 self._pintar()
                 IN.instalar(ruta)
             except Exception as e:
-                self.act_estado = "error: " + f"{type(e).__name__}: {e}"[:160]
+                if "404" in str(e):  # el APK todavía no está en GitHub: esperar y reintentar solo
+                    self.act_estado, self._act_auto, self.version_github, self._prox_github = None, False, None, 0
+                else:
+                    self.act_estado = "error: " + f"{type(e).__name__}: {e}"[:160]
                 self._pintar()
             finally:
                 try:
@@ -908,10 +911,10 @@ class ControlApp(App):
             except ImportError:
                 ctx = None
             try:
-                v = AV.ultima_version_github(contexto=ctx)
+                v = AV.version_apk_github(contexto=ctx)  # solo cuenta si el APK ya se puede bajar
             except Exception:
                 return
-            if v and v != getattr(self, "version_github", None):
+            if v != getattr(self, "version_github", None):
                 self.version_github = v
                 self._pintar()
         threading.Thread(target=tarea, daemon=True).start()
@@ -930,7 +933,17 @@ class ControlApp(App):
         nueva = self._version_disponible(d)
         if not AV.version_nueva(nueva, self.version_app):
             return
+        # el servidor se actualiza antes de que el APK termine de compilarse: hasta que esté, solo avisa
+        listo = AV.version_nueva(getattr(self, "version_github", None), self.version_app)
         estado = getattr(self, "act_estado", None)
+        if not listo and estado not in ("bajando", "instalando"):
+            t = Tarjeta(franja=AMBAR)
+            t.add_widget(Texto(f"Versión nueva de la app: {nueva} (tenés la {self.version_app}).", 15, AMBAR,
+                               negrita=True))
+            t.add_widget(Texto("Se está terminando de publicar. En unos minutos la app la baja y la instala sola.", 13,
+                               GRIS))
+            caja.add_widget(t)
+            return
         if estado is None and platform == "android" and not getattr(self, "_act_auto", False):
             self._act_auto = True  # una vez por apertura de la app: se actualiza sola
             Clock.schedule_once(lambda dt: self._actualizar(auto=True), 1)

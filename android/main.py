@@ -16,7 +16,7 @@ from kivy.app import App
 from kivy.clock import Clock, mainthread
 from kivy.core.text import LabelBase
 from kivy.core.window import Window
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.metrics import dp, sp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -153,6 +153,53 @@ class Interruptor(ButtonBehavior, Widget):
             RoundedRectangle(pos=(x + an - d - dp(3) if self.active else x + dp(3), y + dp(3)), size=(d, d), radius=[d / 2])
 
 
+class Ruedita(Widget):
+    """Ruedita de "cargando" (un arco que gira). mostrar(True/False)."""
+    def __init__(self, **kw):
+        kw.setdefault("size_hint", (None, None)); kw.setdefault("size", (dp(26), dp(26)))
+        super().__init__(**kw)
+        self.angulo, self._reloj = 0, None
+        self.opacity = 0
+        self.bind(pos=self._dibujar, size=self._dibujar)
+
+    def mostrar(self, si):
+        if si and self._reloj is None:
+            self.opacity = 1
+            self._reloj = Clock.schedule_interval(self._girar, 1 / 30)
+        elif not si and self._reloj is not None:
+            self._reloj.cancel(); self._reloj = None
+            self.opacity = 0
+
+    def _girar(self, dt):
+        self.angulo = (self.angulo + 360 * dt * 1.2) % 360
+        self._dibujar()
+
+    def _dibujar(self, *_):
+        self.canvas.clear()
+        r = min(self.width, self.height) / 2 - dp(3)
+        with self.canvas:
+            Color(*alfa(ACENTO, 0.25)); Line(circle=(self.center_x, self.center_y, r), width=dp(1.6))
+            Color(*ACENTO); Line(circle=(self.center_x, self.center_y, r, self.angulo, self.angulo + 100), width=dp(1.6))
+
+
+class Refrescable(ScrollView):
+    """Pantalla deslizable con "tirar para actualizar": arrastrando hacia abajo estando arriba de todo."""
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            arriba = self.scroll_y >= 0.999 or not self.children or self.children[0].height <= self.height
+            touch.ud.setdefault("tirar", (touch.y, arriba))
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        info = touch.ud.get("tirar")
+        if info and info[1] and not touch.ud.get("tirado") and info[0] - touch.y > dp(80):
+            touch.ud["tirado"] = True  # una sola vez por gesto, apenas pasa el umbral
+            app = App.get_running_app()
+            if app is not None and hasattr(app, "_refrescar"):
+                app._refrescar()
+        return super().on_touch_move(touch)
+
+
 class Rotulo(Label):
     """Etiqueta de una línea alineada dentro de su espacio (halign/valign)."""
     def __init__(self, **kw):
@@ -244,7 +291,7 @@ class Entrada(TextInput):
 
 
 def pagina():
-    sv = ScrollView(do_scroll_x=False, bar_width=dp(3), bar_color=alfa(GRIS, 0.5), bar_inactive_color=alfa(GRIS, 0.2))
+    sv = Refrescable(do_scroll_x=False, bar_width=dp(3), bar_color=alfa(GRIS, 0.5), bar_inactive_color=alfa(GRIS, 0.2))
     caja = BoxLayout(orientation="vertical", size_hint_y=None, padding=(dp(14), dp(6), dp(14), dp(18)), spacing=dp(10))
     caja.bind(minimum_height=caja.setter("height"))
     sv.add_widget(caja)
@@ -300,13 +347,16 @@ class ControlApp(App):
     def on_resume(self):
         self._primer_vistazo = True  # lo que pasó mientras estaba cerrada ya llegó por push: no repetirlo
         self.en_frente = True
-        if getattr(self, "cliente", None) and getattr(self, "datos", None):
-            Clock.schedule_once(lambda dt: self._pintar(), 0.3)
+        if getattr(self, "cliente", None):
+            self._refrescar()  # los datos en pantalla son de cuando se cerró: traer los de ahora (con ruedita)
+            if getattr(self, "datos", None):
+                Clock.schedule_once(lambda dt: self._pintar(), 0.3)
 
     def build(self):
         self.archivo = os.path.join(self.user_data_dir, "codigo.json")
         self.cliente, self.datos, self.error, self.pestana = None, None, None, "resumen"
         self.en_frente, self._primer_vistazo = True, True
+        self.despertar = threading.Event()  # despierta al sondeo para pedir los datos ya
         aplicar_tema((self._leer_json("tema.json") or {}).get("tema", "oscuro"))
         self.base = FloatLayout()  # abajo la pantalla; arriba, cuando se abre, el menú
         self.raiz = BoxLayout(orientation="vertical")
@@ -394,6 +444,7 @@ class ControlApp(App):
             self.cliente = C.Cliente(cod)
         except ValueError as e:
             return self._pantalla_codigo(str(e))
+        self._mostrar_carga = True  # ruedita hasta que lleguen los primeros datos
         self._armar()
         if not getattr(self, "_sondeando", False):
             self._sondeando = True
@@ -983,6 +1034,9 @@ class ControlApp(App):
         barra.add_widget(bm)
         self.titulo = Rotulo(text="", font_size=sp(19), bold=True, color=TEXTO, halign="left", valign="middle")
         barra.add_widget(self.titulo)
+        self.ruedita = Ruedita(pos_hint={"center_y": 0.5})
+        self.ruedita.mostrar(bool(getattr(self, "_mostrar_carga", False)))
+        barra.add_widget(self.ruedita)
         self.pildora = Pildora("Conectando", GRIS, pos_hint={"center_y": 0.5})
         barra.add_widget(self.pildora)
         self.raiz.add_widget(barra)
@@ -1076,8 +1130,23 @@ class ControlApp(App):
             self.error = str(e)
         self._pintar()
 
+    def _refrescar(self):
+        """Pide los datos ya (al volver a la app o al tirar la pantalla hacia abajo) y muestra la ruedita."""
+        if not getattr(self, "cliente", None):
+            return
+        self._mostrar_carga = True
+        self._ruedita(True)
+        self.despertar.set()
+
+    @mainthread
+    def _ruedita(self, si):
+        if getattr(self, "ruedita", None) is not None:
+            self.ruedita.mostrar(si)
+
     def _sondeo(self):
         while True:
+            pedido = getattr(self, "_mostrar_carga", False)
+            self.despertar.clear()
             try:
                 d = self.cliente.estado()
                 self.datos, self.error = d, None
@@ -1088,8 +1157,11 @@ class ControlApp(App):
                 self.error = str(e)
             except Exception as e:
                 self.error = f"{type(e).__name__}: {e}"
-            self._pintar(desde_sondeo=True)
-            time.sleep(10)
+            if pedido:
+                self._mostrar_carga = False
+                self._ruedita(False)
+            self._pintar(desde_sondeo=not pedido)  # pedido a mano: rehace también Control y Configuración
+            self.despertar.wait(10)
 
     def _accion(self, nombre, ok="", **datos):
         def tarea():

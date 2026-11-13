@@ -80,12 +80,41 @@ try:
              lambda: (setattr(app, "version_app", None), setattr(Window, "size", (360, 300)), app._ir("estrategias")),
              lambda: marcar_scroll(),
              lambda: app._pintar(desde_sondeo=True),
-             lambda: comprobar_scroll(), "resumen"]
+             lambda: comprobar_scroll(), "resumen",
+             # tirar para actualizar (gesto real con el dedo) y ruedita de carga
+             lambda: tirar(), lambda: comprobar_tirar(), "posiciones", lambda: refrescar_ya(),
+             lambda: comprobar_ruedita()]
 
     def marcar_scroll():
         sv = app.cuerpo.children[0]
         sv.scroll_y = 0.3
         resultado["antes"] = (sv.scroll_y, sv.children[0].height, sv.height)
+
+    def tirar():
+        from kivy.tests.common import UnitTestTouch
+        real = app._refrescar
+        app._refrescar = lambda: resultado.__setitem__("tiros", resultado.get("tiros", 0) + 1)
+        try:
+            x = Window.width / 2
+            t = UnitTestTouch(x, Window.height * 0.7)
+            t.touch_down()
+            for y in range(int(Window.height * 0.7), int(Window.height * 0.7) - 160, -20):
+                t.touch_move(x, y)
+            t.touch_up()
+        finally:
+            app._refrescar = real
+
+    def comprobar_tirar():
+        assert resultado.get("tiros") == 1, f"tirar para actualizar: {resultado.get('tiros')} pedidos (se esperaba 1)"
+
+    def refrescar_ya():
+        app._refrescar()
+        assert app._mostrar_carga
+        resultado["girando"] = True
+
+    def comprobar_ruedita():  # 1,5 s después ya llegaron los datos: la ruedita se apagó
+        assert resultado.get("girando") and not app._mostrar_carga and app.ruedita._reloj is None
+        resultado["ruedita"] = True
 
     def comprobar_scroll():
         sv = app.cuerpo.children[0]
@@ -110,6 +139,7 @@ try:
     assert app.datos and not app.error, app.error
     assert not errores, errores
     assert resultado.get("scroll"), "al refrescar, la pantalla volvió arriba"
+    assert resultado.get("ruedita"), "no se comprobó la ruedita de carga"
     # avisos push: el celular se registra en el servidor (sin clave de Firebase el servidor lo acepta igual)
     import cliente_api as C
     cli = C.Cliente(codigo)

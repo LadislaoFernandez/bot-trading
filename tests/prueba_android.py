@@ -91,7 +91,29 @@ try:
         resultado["antes"] = (sv.scroll_y, sv.children[0].height, sv.height)
 
     def tirar():
-        from kivy.tests.common import UnitTestTouch
+        from kivy.base import EventLoop
+        from kivy.input.motionevent import MotionEvent
+
+        class UnitTestTouch(MotionEvent):  # como el de kivy.tests, que necesita pytest
+            def __init__(self, x, y):
+                w = EventLoop.window
+                super().__init__("prueba", 1, {"x": x / w.width, "y": y / w.height}, is_touch=True)
+
+            def depack(self, args):
+                self.sx, self.sy = args["x"], args["y"]
+                self.profile = ["pos"]
+                super().depack(args)
+
+            def touch_down(self):
+                EventLoop.post_dispatch_input("begin", self)
+
+            def touch_move(self, x, y):
+                w = EventLoop.window
+                self.move({"x": x / w.width, "y": y / w.height})
+                EventLoop.post_dispatch_input("update", self)
+
+            def touch_up(self):
+                EventLoop.post_dispatch_input("end", self)
         real = app._refrescar
         app._refrescar = lambda: resultado.__setitem__("tiros", resultado.get("tiros", 0) + 1)
         try:

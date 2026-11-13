@@ -19,8 +19,10 @@ def ultima_version_github(repo=REPO, timeout=10, contexto=None):
 def version_apk_github(timeout=10, contexto=None):
     """Versión del APK que ya se puede bajar ("1.31"), o None si la última publicación todavía no tiene el APK (se
     agrega unos minutos después del resto). Mira a dónde redirige el link fijo de descarga."""
-    destino = _redirige(URL_APK, timeout, contexto)
+    destino = _redirige(URL_APK, timeout, contexto)  # GitHub redirige a la última versión aunque no tenga el APK
     if not destino or "/download/" not in destino:
+        return None
+    if not _redirige(destino, timeout, contexto):  # 404: el APK de esa versión todavía no se subió
         return None
     return destino.split("/download/", 1)[1].split("/", 1)[0].lstrip("vV") or None
 

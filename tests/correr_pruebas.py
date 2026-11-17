@@ -274,8 +274,43 @@ def prueba_stop_10min():
         PT.log, PT.append_csv = log, csv
 
 
+def prueba_tope_aportado():
+    """El dinero aportado no puede pasar de lo ya aportado más la plata de la cuenta que el bot no usa."""
+    import json
+    import tempfile
+    import config as K
+    import paper_trader as PT
+    import servidor as SV
+    modo, archivo = K.MODO, K.STATE_FILE
+    d = tempfile.mkdtemp()
+
+    class Br:
+        modo = "demo"
+
+        def __init__(self, total):
+            self.total = total
+
+        def saldo(self):
+            return dict(total=self.total, libre=self.total, usado=0.0)
+    try:
+        K.MODO, K.STATE_FILE = "demo", os.path.join(d, "estado.json")
+        assert SV.tope_aportado(Br(1000.0)) == 1000.0  # todavía no operó: toda la cuenta
+        st = PT.load_state()
+        st.update(capital_inicial=300.0, aportes=0.0, libre=7.0)
+        st["sleeves"] = {"BTC_BREAKOUT": dict(equity=160.0, pos=None, pending=None),
+                         "ETH_TL": dict(equity=150.0, pos=None, pending=None)}
+        with open(K.STATE_FILE, "w") as f:
+            json.dump(st, f)
+        assert SV.tope_aportado(Br(1000.0)) == 983.0  # 300 aportados + (1000 de la cuenta - 317 del bot)
+        assert SV.tope_aportado(Br(317.0)) == 300.0  # la cuenta es solo del bot: no se puede subir
+        assert SV.tope_aportado(Br(250.0)) == 300.0  # nunca obliga a bajar lo aportado
+    finally:
+        K.MODO, K.STATE_FILE = modo, archivo
+
+
 def prueba_reglas():
     prueba_breakeven()
+    prueba_tope_aportado()
     prueba_stop_10min()
     import engine as E
     import reglas as R

@@ -790,7 +790,7 @@ class ControlApp(App):
 
     def _confirmar_real(self, txt):
         caja = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
-        caja.add_widget(Texto(txt + "\n\nVas a operar con DINERO REAL y podés perder dinero. Revisá el capital del modo "
+        caja.add_widget(Texto(txt + "\n\nVas a operar con DINERO REAL y podés perder dinero. Revisá el dinero aportado "
                                     "real en Configuración.\n\nEscribí REAL para pasar a dinero real ahora:", 14))
         e = Entrada(multiline=False, size_hint_y=None, height=dp(44), font_size=sp(15))
         caja.add_widget(e)
@@ -1252,7 +1252,7 @@ class ControlApp(App):
         fila.add_widget(Rotulo(text=pct(s["rendimiento_pct"], 2, True), font_size=sp(15), bold=True,
                               color=color(s["rendimiento_pct"]), size_hint_x=0.45, halign="right", valign="middle"))
         t.add_widget(fila)
-        t.add_widget(Texto(f"sobre {usd(s['base'])} de base", 13, GRIS))
+        t.add_widget(Texto(f"sobre {usd(s['base'])} aportados", 13, GRIS))
         t.add_widget(BoxLayout(size_hint_y=None, height=dp(6)))
         t.add_widget(cuadros((("Resultado cerrado", usd(s["realizado"], 2, True), color(s["realizado"])),
                               ("Resultado abierto", usd(s["abierto"], 2, True), color(s["abierto"])),
@@ -1631,7 +1631,7 @@ class ControlApp(App):
         seccion(caja, "Riesgo")
         t = Tarjeta()
         t.add_widget(Texto("Riesgo por operación, límite de pérdida (frena el bot si la cuenta pierde ese porcentaje del "
-                           "capital del modo) y espera de la orden límite antes de completarla a mercado.", 13, GRIS))
+                           "dinero aportado) y espera de la orden límite antes de completarla a mercado.", 13, GRIS))
         r = d["riesgo"]
         e1 = Entrada(text=num(r["por_operacion"] * 100, 1), multiline=False, input_filter="float", size_hint_y=None,
                      height=dp(44), font_size=sp(15))
@@ -1653,14 +1653,20 @@ class ControlApp(App):
         t.add_widget(Boton("Guardar riesgo", guardar_riesgo, col=ACENTO))
         caja.add_widget(t)
 
-        seccion(caja, "Capital del modo")
+        seccion(caja, "Dinero aportado")
         t = Tarjeta()
-        t.add_widget(Texto("Cuánto dinero de la cuenta usa el bot en el modo actual. Con el piloto encendido, el bot "
-                           "reparte el cambio solo.", 13, GRIS))
+        t.add_widget(Texto("La plata que le pusiste al bot, sin contar lo que ganó o perdió. El bot opera con su saldo "
+                           "actual, así que las ganancias se reinvierten solas. Cambiá este número solo cuando agregues o "
+                           "saques plata: la diferencia se suma o se resta del saldo del bot. No puede ser más de lo que "
+                           "hay en la cuenta de Binance.", 13, GRIS))
+        sn = d.get("snap") or {}
+        if sn.get("saldo") is not None:
+            t.add_widget(Texto(f"Hoy el bot opera con {usd(sn['saldo'])}: {usd(sn.get('base'))} aportados y "
+                               f"{usd(sn['saldo'] - (sn.get('base') or 0), 2, True)} de resultado.", 13))
         e3 = Entrada(text=num((d.get("capital") or {}).get(d["modo"], 100), 2).replace(".", ""), multiline=False,
                      input_filter="float", size_hint_y=None, height=dp(44), font_size=sp(15))
         t.add_widget(e3)
-        t.add_widget(Boton("Guardar capital", lambda: self._accion("capital", "Capital guardado.",
+        t.add_widget(Boton("Guardar", lambda: self._accion("capital", "Dinero aportado guardado.",
                                                                     valor=float(e3.text.replace(",", ".") or 0)),
                            col=ACENTO))
         caja.add_widget(t)

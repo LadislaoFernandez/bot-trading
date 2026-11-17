@@ -396,6 +396,11 @@ class Servicio:
                 raise ValueError(t("Con el piloto apagado, el capital se cambia desde la app de Windows conectada a este "
                                    "equipo, porque hay que revisar los montos de cada estrategia. Encendé el piloto o "
                                    "cambialo en el servidor."))
+            if K.MODO != "simulado":
+                tope = tope_aportado(getattr(self.bot, "broker", None))
+                if valor > tope + 0.01:
+                    raise ValueError(t("La cuenta de Binance no tiene esa plata: como mucho podés poner {m} USDT (lo que "
+                                       "ya aportaste más lo que hay en la cuenta sin usar por el bot).", m=f"{tope:,.2f}"))
             caps = PT.leer_ajustes().get("capital", {}); caps[K.MODO] = valor
             PT.guardar_ajustes(capital=caps); PT.configurar_modo(K.MODO)
             PT.log(t("Capital de {m} cambiado a {v} USDT desde la app de control.", m=t(K.NOMBRE_MODO[K.MODO]), v=valor))
@@ -646,6 +651,28 @@ def cmd_claves(a):
     else:
         print("Cancelado."); return
     print(f"Claves guardadas: {CL.enmascarar(CL.cargar(m)[0])}. Ahora probalas: python3 servidor.py probar {m}")
+
+
+def tope_aportado(br=None):
+    """Lo máximo que se puede poner como dinero aportado en demo o real: lo aportado hoy más la plata de la cuenta de
+    Binance que el bot no está usando (saldo total de la cuenta menos el saldo del bot)."""
+    import claves as CL
+    import live as LV
+    if br is None or getattr(br, "modo", None) != K.MODO:
+        cred = CL.cargar(K.MODO)
+        if not cred:
+            raise ValueError(t("Faltan las claves de API de este modo. Cargalas en Configuración."))
+        br = LV.Broker(K.MODO, *cred)
+    try:
+        cuenta = br.saldo()["total"]
+    except Exception as e:
+        raise ValueError(t("No se pudo consultar el saldo de Binance ({e}). Probá de nuevo en un rato.",
+                           e=type(e).__name__))
+    if not os.path.exists(K.STATE_FILE):  # el bot todavía no operó en este modo: todo lo de la cuenta está libre
+        return round(cuenta, 2)
+    st = PT.load_state()
+    del_bot = sum(v["equity"] for v in st["sleeves"].values()) + st.get("libre", 0.0)
+    return round(PT.base_capital(st) + max(0.0, cuenta - del_bot), 2)
 
 
 def probar_claves(m):

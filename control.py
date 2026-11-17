@@ -506,7 +506,7 @@ class Control(QMainWindow):
         h.addStretch(); pv.addLayout(h)
 
         pv = seccion(t("Riesgo"), t("Riesgo por operación, límite de pérdida (frena el bot si la cuenta pierde ese porcentaje "
-                                    "del capital del modo) y espera de la orden límite antes de completarla a mercado."))
+                                    "del dinero aportado) y espera de la orden límite antes de completarla a mercado."))
         g = QGridLayout(); g.setHorizontalSpacing(14)
         self.sp_riesgo = QDoubleSpinBox(); self.sp_riesgo.setRange(0.5, 10); self.sp_riesgo.setDecimals(1)
         self.sp_riesgo.setSingleStep(0.5); self.sp_riesgo.setSuffix(NB + "%")
@@ -519,13 +519,17 @@ class Control(QMainWindow):
         h = QHBoxLayout(); h.addWidget(boton(t("Guardar riesgo"), "primario", self._guardar_riesgo)); h.addStretch()
         pv.addLayout(h); self._riesgo_cargado = False
 
-        pv = seccion(t("Capital del modo"), t("Cuánto dinero de la cuenta usa el bot en el modo actual. Con el piloto "
-                                              "encendido, el bot reparte el cambio solo."))
+        pv = seccion(t("Dinero aportado"), t("La plata que le pusiste al bot, sin contar lo que ganó o perdió. El bot "
+                                             "opera con su saldo actual, así que las ganancias se reinvierten solas. "
+                                             "Cambiá este número solo cuando agregues o saques plata: la diferencia se "
+                                             "suma o se resta del saldo del bot. No puede ser más de lo que hay en la "
+                                             "cuenta de Binance."))
         h = QHBoxLayout()
         self.sp_capital = QDoubleSpinBox(); self.sp_capital.setRange(10, 1_000_000); self.sp_capital.setDecimals(2)
         self.sp_capital.setSingleStep(10); self.sp_capital.setSuffix(NB + "USDT"); self.sp_capital.setMinimumWidth(150)
-        h.addWidget(con_pasos(self.sp_capital)); h.addWidget(boton(t("Guardar capital"), "primario", self._guardar_capital))
+        h.addWidget(con_pasos(self.sp_capital)); h.addWidget(boton(t("Guardar"), "primario", self._guardar_capital))
         h.addStretch(); pv.addLayout(h); self._capital_cargado = False
+        self.lbl_cap_saldo = lbl("", rol="muted", size=12, wrap=True); pv.addWidget(self.lbl_cap_saldo)
         self.lbl_cap_min_cfg = lbl("", size=13, wrap=True); pv.addWidget(self.lbl_cap_min_cfg)
 
         pv = seccion(t("Laboratorio de estrategias"), t(
@@ -586,7 +590,7 @@ class Control(QMainWindow):
                      limite_perdida=round(self.sp_limite.value() / 100, 4), espera_limite=int(self.sp_espera.value()))
 
     def _guardar_capital(self):
-        self._accion("capital", t("Capital guardado."), valor=float(self.sp_capital.value()))
+        self._accion("capital", t("Dinero aportado guardado."), valor=float(self.sp_capital.value()))
 
     def _cambiar_tema(self, tema):
         if tema == U.TEMA:
@@ -682,7 +686,7 @@ class Control(QMainWindow):
         else:
             self.lbl_precios_upd.setText(t("No se pudieron leer los precios. Reintentando."))
         self.lbl_saldo.setText(usd(s["saldo"]))
-        self.lbl_rend.setText(t("{p} sobre el capital de {c}", p=pct(s["rendimiento_pct"], 2, True), c=usd(s["base"])))
+        self.lbl_rend.setText(t("{p} sobre {c} aportados", p=pct(s["rendimiento_pct"], 2, True), c=usd(s["base"])))
         self.lbl_rend.setStyleSheet(f"font-size:13px; color:{color_de(s['rendimiento_pct'])}")
         for k, v, c in (("cerrado", usd(s["realizado"], 2, True), color_de(s["realizado"])),
                         ("abierto", usd(s["abierto"], 2, True), color_de(s["abierto"])),
@@ -893,6 +897,10 @@ class Control(QMainWindow):
         if not self._capital_cargado:
             self.sp_capital.setValue(float((d.get("capital") or {}).get(d["modo"], 100))); self._capital_cargado = True
         self._caja(self.lbl_cap_min_cfg, self._texto_cap_min(d))
+        sn = d.get("snap") or {}
+        if sn.get("saldo") is not None:
+            self.lbl_cap_saldo.setText(t("Hoy el bot opera con {s}: {a} aportados y {r} de resultado.", s=usd(sn["saldo"]),
+                                         a=usd(sn.get("base")), r=usd(sn["saldo"] - (sn.get("base") or 0), 2, True)))
         lab = d["laboratorio"]
         self.sw_lab.blockSignals(True); self.sw_lab.setChecked(bool((lab.get("ajustes") or {}).get("activo")))
         self.sw_lab.blockSignals(False)

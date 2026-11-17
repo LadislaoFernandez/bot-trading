@@ -38,9 +38,16 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.32"
+VERSION = "1.33"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.33", "17/11/2026", [
+        "\"Capital del modo\" pasa a llamarse \"Dinero aportado\", con una explicación más clara: es la plata que le "
+        "pusiste al bot; el bot opera con su saldo actual y reinvierte las ganancias solo. Se muestra con cuánto opera "
+        "hoy (aportado más resultado).",
+        "En demo y real, el dinero aportado ya no puede ser más de lo que hay en la cuenta de Binance (lo aportado más "
+        "la plata de la cuenta que el bot no usa).",
+    ]),
     ("1.32", "13/11/2026", [
         "App de Android: ruedita de carga arriba mientras trae los datos (al abrir la app, al volver a ella y al "
         "actualizar), y \"tirar para actualizar\": arrastrando la pantalla hacia abajo estando arriba de todo se "

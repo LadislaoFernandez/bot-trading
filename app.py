@@ -546,12 +546,19 @@ class RelojVela(QWidget):
 class GraficoCapital(QWidget):
     def __init__(self):
         super().__init__()
-        self.pts, self.hover, self.base = [], None, K.INITIAL_CAPITAL
+        self.pts, self.hover, self.base, self.saldos = [], None, K.INITIAL_CAPITAL, None
         self.setMinimumHeight(220)
         self.setMouseTracking(True)
 
     def set_puntos(self, pts, base):
-        self.pts, self.base = pts, base
+        self.pts, self.base, self.saldos = pts, base, None
+        self.update()
+
+    def set_resultado(self, pts):
+        """pts: [(hora, resultado acumulado, saldo)]. Dibuja el resultado del bot (0 = sin ganar ni perder)."""
+        self.pts = [(p[0], p[1]) for p in pts]
+        self.saldos = [p[2] for p in pts]
+        self.base = 0.0
         self.update()
 
     def _geo(self):
@@ -584,8 +591,9 @@ class GraficoCapital(QWidget):
             p.setPen(QPen(QColor(LINE), 1))
             p.drawLine(QPointF(m["l"], y), QPointF(m["l"] + w, y))
             p.setPen(QColor(MUTED))
-            p.drawText(QRectF(0, y - 8, m["l"] - 8, 16), Qt.AlignRight | Qt.AlignVCenter, A.fmt(v))
-        yb = Y(self.base)  # capital del modo
+            p.drawText(QRectF(0, y - 8, m["l"] - 8, 16), Qt.AlignRight | Qt.AlignVCenter,
+                       num(v, 2, True) if self.saldos is not None else A.fmt(v))
+        yb = Y(self.base)  # capital aportado, o el 0 en el gráfico de resultado
         p.setPen(QPen(QColor(MUTED), 1, Qt.DashLine))
         p.drawLine(QPointF(m["l"], yb), QPointF(m["l"] + w, yb))
         last = self.pts[-1][1]
@@ -614,7 +622,9 @@ class GraficoCapital(QWidget):
             p.drawLine(QPointF(xx, m["t"]), QPointF(xx, m["t"] + h))
             p.setBrush(col); p.setPen(QPen(QColor(BG), 2))
             p.drawEllipse(QPointF(xx, y), 5, 5)
-            txt = f"{usd(v)}   {datetime.fromtimestamp(x):%d/%m %H:%M}"
+            txt = (f"{usd(v, 2, True)}   ·   " + t("saldo {s}", s=usd(self.saldos[self.hover])) +
+                   f"   ·   {datetime.fromtimestamp(x):%d/%m %H:%M}") if self.saldos is not None else \
+                f"{usd(v)}   {datetime.fromtimestamp(x):%d/%m %H:%M}"
             bw = p.fontMetrics().horizontalAdvance(txt) + 18
             bx = min(max(xx - bw / 2, m["l"]), m["l"] + w - bw)
             p.setBrush(QColor(PANEL2)); p.setPen(QPen(QColor(LINE), 1))

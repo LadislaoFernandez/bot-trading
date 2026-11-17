@@ -16,7 +16,7 @@ from kivy.app import App
 from kivy.clock import Clock, mainthread
 from kivy.core.text import LabelBase
 from kivy.core.window import Window
-from kivy.graphics import Color, Line, RoundedRectangle
+from kivy.graphics import Color, Ellipse, Line, Mesh, RoundedRectangle
 from kivy.metrics import dp, sp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -180,6 +180,94 @@ class Ruedita(Widget):
         with self.canvas:
             Color(*alfa(ACENTO, 0.25)); Line(circle=(self.center_x, self.center_y, r), width=dp(1.6))
             Color(*ACENTO); Line(circle=(self.center_x, self.center_y, r, self.angulo, self.angulo + 100), width=dp(1.6))
+
+
+class GraficoResultado(Widget):
+    """Resultado acumulado del bot (lo que ganó o perdió, sin contar aportes ni retiros). Tocándolo muestra cada momento.
+    pts: [(hora, resultado, saldo)]."""
+    def __init__(self, pts, **kw):
+        kw.setdefault("size_hint_y", None); kw.setdefault("height", dp(210))
+        super().__init__(**kw)
+        self.pts, self.hover = pts, None
+        self.info = Label(font_size=sp(12.5), color=GRIS, halign="center", valign="middle")
+        self.f0 = Label(font_size=sp(11), color=GRIS, halign="left", valign="middle")
+        self.f1 = Label(font_size=sp(11), color=GRIS, halign="right", valign="middle")
+        self.ejes = [Label(font_size=sp(10.5), color=GRIS, halign="left", valign="middle") for _ in range(2)]
+        for w in [self.info, self.f0, self.f1] + self.ejes:
+            self.add_widget(w)
+        self.bind(pos=self._dibujar, size=self._dibujar)
+        self._dibujar()
+
+    def _geo(self):
+        l, r, arr, ab = self.x + dp(4), self.right - dp(4), self.top - dp(30), self.y + dp(22)
+        vals = [p[1] for p in self.pts] + [0.0]
+        lo, hi = min(vals), max(vals)
+        pad = max((hi - lo) * 0.12, 0.5)
+        lo, hi = lo - pad, hi + pad
+        t0, t1 = self.pts[0][0], self.pts[-1][0]
+        t1 = t1 if t1 > t0 else t0 + 1
+        return (lambda x: l + (x - t0) / (t1 - t0) * (r - l)), (lambda v: ab + (v - lo) / (hi - lo) * (arr - ab)), \
+            l, r, arr, ab, lo, hi
+
+    def _dibujar(self, *_):
+        self.canvas.before.clear()
+        for w, (x, y, an, al) in ((self.info, (self.x, self.top - dp(26), self.width, dp(24))),
+                                  (self.f0, (self.x, self.y, self.width / 2, dp(20))),
+                                  (self.f1, (self.center_x, self.y, self.width / 2, dp(20)))):
+            w.pos, w.size, w.text_size = (x, y), (an, al), (an, al)
+        if len(self.pts) < 2:
+            self.info.text = "El gráfico aparece después de las primeras revisiones del bot."
+            for w in [self.f0, self.f1] + self.ejes:
+                w.text = ""
+            return
+        X, Y, l, r, arr, ab, lo, hi = self._geo()
+        final = self.pts[-1][1]
+        col = VERDE if final >= 0 else ROJO
+        y0 = Y(0.0)
+        with self.canvas.before:
+            Color(*alfa(GRIS, 0.6))
+            Line(points=[l, y0, r, y0], width=1, dash_length=dp(4), dash_offset=dp(4))  # el 0: ni gana ni pierde
+            Color(*alfa(col, 0.16))
+            vert, ind = [], []
+            for i, p in enumerate(self.pts):
+                x, y = X(p[0]), Y(p[1])
+                vert += [x, y, 0, 0, x, y0, 0, 0]
+                ind += [2 * i, 2 * i + 1]
+            Mesh(vertices=vert, indices=ind, mode="triangle_strip")
+            Color(*col)
+            Line(points=[c for p in self.pts for c in (X(p[0]), Y(p[1]))], width=dp(1.4))
+            if self.hover is not None:
+                p = self.pts[self.hover]
+                x, y = X(p[0]), Y(p[1])
+                Color(*alfa(GRIS, 0.7)); Line(points=[x, ab, x, arr], width=1, dash_length=dp(2), dash_offset=dp(3))
+                Color(*col); Ellipse(pos=(x - dp(5), y - dp(5)), size=(dp(10), dp(10)))
+        for w, v in zip(self.ejes, (hi, lo)):  # valor de arriba y de abajo del gráfico
+            w.text = num(v, 0, True)
+            w.texture_update()
+            w.size = w.texture_size
+            w.pos = (l + dp(2), Y(v) - (w.height if v == hi else 0))
+        self.f0.text = datetime.fromtimestamp(self.pts[0][0]).strftime("%d/%m")
+        self.f1.text = datetime.fromtimestamp(self.pts[-1][0]).strftime("%d/%m %H:%M")
+        if self.hover is None:
+            self.info.text, self.info.color = "Tocá el gráfico para ver cada momento", GRIS
+        else:
+            ts, res, saldo = self.pts[self.hover][:3]
+            self.info.text = f"{usd(res, 2, True)}  ·  saldo {usd(saldo)}  ·  {datetime.fromtimestamp(ts):%d/%m %H:%M}"
+            self.info.color = color(res)
+
+    def _tocar(self, touch):
+        if len(self.pts) >= 2 and self.collide_point(*touch.pos):
+            X = self._geo()[0]
+            self.hover = min(range(len(self.pts)), key=lambda i: abs(X(self.pts[i][0]) - touch.x))
+            self._dibujar()
+
+    def on_touch_down(self, touch):
+        self._tocar(touch)
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        self._tocar(touch)
+        return super().on_touch_move(touch)
 
 
 class Refrescable(ScrollView):
@@ -1116,6 +1204,10 @@ class ControlApp(App):
         self._armar()
 
     def _ir(self, k):
+        if k == "resumen" and getattr(self, "pestana", None) != "resumen" and getattr(self, "curva", None) is None:
+            self._prox_curva = 0
+            if hasattr(self, "despertar"):
+                self.despertar.set()
         self.pestana = k
         if k == "decisiones":
             self.rev_idx = 0
@@ -1152,6 +1244,9 @@ class ControlApp(App):
                 self.datos, self.error = d, None
                 if getattr(self, "pestana", "") == "decisiones":
                     self.decisiones = self.cliente.detalle("decisiones").get("decisiones") or []
+                if getattr(self, "pestana", "") == "resumen" and (pedido or time.time() >= getattr(self, "_prox_curva", 0)):
+                    self._prox_curva = time.time() + 300  # el saldo se anota una vez por hora: no hace falta más seguido
+                    self.curva = self.cliente.detalle("curva").get("resultado")  # None con un servidor viejo
                 self._avisos_en_frente()
             except (C.ErrorConexion, C.ErrorServidor) as e:
                 self.error = str(e)
@@ -1259,6 +1354,14 @@ class ControlApp(App):
                               ("Sin asignar", usd(s["libre"])),
                               ("Operaciones", str(s["resumen_ops"]["n"])))))
         caja.add_widget(t)
+        cur = getattr(self, "curva", None)
+        if cur:
+            seccion(caja, "Resultado acumulado", usd(cur[-1][1], 2, True))
+            t = Tarjeta(padding=(dp(10), dp(8)))
+            t.add_widget(GraficoResultado(cur))
+            t.add_widget(Texto("Lo que ganó o perdió el bot, sin contar la plata que agregaste o sacaste.", 12, GRIS,
+                               padding=(dp(4), 0)))
+            caja.add_widget(t)
         hace = ""
         if d.get("precios_hora"):
             seg = max(0, int(time.time() - d["precios_hora"]))

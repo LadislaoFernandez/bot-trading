@@ -155,6 +155,36 @@ def curva_capital(carpeta=".", max_puntos=1500):
     return pts
 
 
+def curva_resultado(carpeta=".", max_puntos=1500):
+    """[(hora, resultado acumulado, saldo)]: lo que ganó o perdió el bot, sin contar la plata que agregaste o sacaste.
+    Con lo aportado anotado en cada fila, el cambio de resultado es el cambio de saldo menos el cambio de lo aportado.
+    En filas viejas sin ese dato, un salto de más del 10 % en una hora se toma como aporte o retiro (la misma regla que
+    los resultados por mes). Al final se ajusta para que el último punto sea exacto: saldo menos lo aportado."""
+    pts = curva_capital_archivo(carpeta, K.EQUITY_FILE)
+    if not pts:
+        return []
+    out, res, prev = [], 0.0, None
+    for ts, v, b in pts:
+        if prev is not None:
+            pv, pb = prev
+            if b is not None and pb is not None:
+                res += (v - pv) - (b - pb)
+            elif pv > 0 and v > 0 and abs(math.log(v / pv)) <= math.log(1.10):
+                res += v - pv
+        elif b is not None:
+            res = v - b
+        out.append([ts, res, v])
+        prev = (v, b)
+    if pts[-1][2] is not None:
+        ajuste = (pts[-1][1] - pts[-1][2]) - out[-1][1]
+        for x in out:
+            x[1] += ajuste
+    if max_puntos and len(out) > max_puntos:
+        paso = len(out) / max_puntos
+        out = [out[int(i * paso)] for i in range(max_puntos)] + [out[-1]]
+    return [(ts, round(r, 2), round(v, 2)) for ts, r, v in out]
+
+
 def operaciones(carpeta="."):
     out = []
     for r in leer_csv(K.TRADES_FILE, carpeta):

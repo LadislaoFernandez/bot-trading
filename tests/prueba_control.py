@@ -41,6 +41,15 @@ try:
     from PySide6.QtWidgets import QApplication
     qa = QApplication.instance() or QApplication(sys.argv)
     import control
+
+    # curva de ejemplo para el gráfico de resultado: sube, cae, aporta 200 a mitad (no debe verse) y vuelve a subir
+    import math as _m
+    _t0 = time.time() - 30 * 24 * 3600
+    CURVA_EJEMPLO = [(_t0 + i * 3600 * 6, round(8 * _m.sin(i / 9) + i * 0.15 - 2, 2),
+                      round(300 + (200 if i > 60 else 0) + 8 * _m.sin(i / 9) + i * 0.15 - 2, 2)) for i in range(120)]
+    _detalle = C.Cliente.detalle
+    C.Cliente.detalle = lambda self, que: ({"curva": [], "resultado": CURVA_EJEMPLO} if que == "curva"
+                                           else _detalle(self, que))
     qa.setStyleSheet(control.QSS)  # el mismo estilo que pone main() en la app real
     w = control.Control(codigo)
     fin = time.time() + 20

@@ -62,9 +62,18 @@ try:
                              leida=False)] + list(d.get("alertas") or [])
         return d
     M.C.Cliente.estado = estado_con_ejemplo
+
+    # curva de ejemplo para el gráfico de resultado: sube, cae, aporta 200 a mitad (no debe verse) y vuelve a subir
+    import math as _m
+    _t0 = time.time() - 30 * 24 * 3600
+    CURVA_EJEMPLO = [(_t0 + i * 3600 * 6, round(8 * _m.sin(i / 9) + i * 0.15 - 2, 2),
+                      round(300 + (200 if i > 60 else 0) + 8 * _m.sin(i / 9) + i * 0.15 - 2, 2)) for i in range(120)]
+    _detalle = M.C.Cliente.detalle
+    M.C.Cliente.detalle = lambda self, que: ({"curva": [], "resultado": CURVA_EJEMPLO} if que == "curva"
+                                             else _detalle(self, que))
     app = M.ControlApp()
     resultado = {}
-    pasos = ["resumen", lambda: app._abrir_menu(), lambda: app._cerrar_menu(), "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
+    pasos = ["resumen", lambda: tocar_grafico(), lambda: app._abrir_menu(), lambda: app._cerrar_menu(), "posiciones", "operaciones", "estrategias", "decisiones", "avisos", "control", "servidor",
              # asistente de Oracle y conexión de Binance (pantallas; la creación real se prueba en correr_pruebas)
              lambda: app._pantalla_codigo(), lambda: app._asistente_inicio(), lambda: app._asistente_clave(),
              lambda: app._asistente_clave("error de prueba"), lambda: app._asistente_progreso(),
@@ -89,6 +98,14 @@ try:
         sv = app.cuerpo.children[0]
         sv.scroll_y = 0.3
         resultado["antes"] = (sv.scroll_y, sv.children[0].height, sv.height)
+
+    def tocar_grafico():
+        g = [w for w in app.cuerpo.walk() if isinstance(w, M.GraficoResultado)]
+        assert g, "no se dibujó el gráfico de resultado en el Resumen"
+        g[0].hover = 70
+        g[0]._dibujar()
+        assert "saldo" in g[0].info.text, g[0].info.text
+        resultado["grafico"] = True
 
     def tirar():
         from kivy.base import EventLoop
@@ -162,6 +179,7 @@ try:
     assert not errores, errores
     assert resultado.get("scroll"), "al refrescar, la pantalla volvió arriba"
     assert resultado.get("ruedita"), "no se comprobó la ruedita de carga"
+    assert resultado.get("grafico"), "no se comprobó el gráfico de resultado"
     # avisos push: el celular se registra en el servidor (sin clave de Firebase el servidor lo acepta igual)
     import cliente_api as C
     cli = C.Cliente(codigo)

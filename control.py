@@ -280,6 +280,8 @@ class Control(QMainWindow):
         # saldo con el gráfico de su evolución
         hero = panel("acento"); hv = QVBoxLayout(hero); hv.setContentsMargins(20, 16, 20, 14); hv.setSpacing(4)
         hv.addWidget(lbl(t("Saldo del bot"), rol="titulo"))
+        self.lbl_graf = lbl(t("El gráfico muestra lo que ganó o perdió el bot (sin contar la plata que agregaste o "
+                              "sacaste). Pasá el mouse para ver el saldo de cada momento."), rol="muted", size=11, wrap=True)
         fs = QHBoxLayout(); fs.setSpacing(16)
         self.lbl_saldo = lbl("—", size=32, weight=600, family=FONT); fs.addWidget(self.lbl_saldo)
         fs.addStretch()
@@ -288,6 +290,7 @@ class Control(QMainWindow):
         fs.addWidget(self.btn_reanudar, 0, Qt.AlignBottom)
         hv.addLayout(fs)
         self.grafico = GraficoCapital(); self.grafico.setMinimumHeight(190); hv.addWidget(self.grafico, 1)
+        hv.addWidget(self.lbl_graf)
         arriba.addWidget(hero, 1)
         # mercado
         pm = panel("gris"); mk = QVBoxLayout(pm); mk.setContentsMargins(18, 16, 18, 14); mk.setSpacing(10)
@@ -692,8 +695,11 @@ class Control(QMainWindow):
                         ("abierto", usd(s["abierto"], 2, True), color_de(s["abierto"])),
                         ("libre", usd(s["libre"]), TEXT), ("ops", str(s["resumen_ops"]["n"]), TEXT)):
             self.kpi[k].setText(v); self.kpi[k].setStyleSheet(f"font-size:17px; font-weight:600; color:{c}")
-        cur = (self.detalles.get("curva") or {}).get("curva") or []
-        self.grafico.set_puntos([tuple(p) for p in cur], s["base"])
+        dc = self.detalles.get("curva") or {}
+        if dc.get("resultado") is not None:
+            self.grafico.set_resultado([tuple(p) for p in dc["resultado"]])
+        else:  # servidor de una versión anterior
+            self.grafico.set_puntos([tuple(p) for p in dc.get("curva") or []], s["base"])
         ab = s.get("abiertas") or []
         self.lbl_abiertas.setText("\n".join(
             f"{f['activo']} {f['estrategia']}: {t('compra') if f['lado'] == 'long' else t('venta')} · "

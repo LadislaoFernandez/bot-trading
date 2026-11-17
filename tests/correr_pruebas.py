@@ -308,8 +308,35 @@ def prueba_tope_aportado():
         K.MODO, K.STATE_FILE = modo, archivo
 
 
+def prueba_curva_resultado():
+    """El gráfico del Resumen muestra lo que ganó o perdió el bot: aportar o sacar plata no lo mueve."""
+    import tempfile
+    import app_data as A
+    import config as K
+    d = tempfile.mkdtemp()
+
+    def escribir(filas, con_base=True):
+        with open(os.path.join(d, K.EQUITY_FILE), "w", encoding="utf-8") as f:
+            f.write("hora,total" + (",base" if con_base else "") + "\n")
+            for i, fila in enumerate(filas):
+                f.write(f"2026-11-01 {i:02d}:00," + ",".join(str(x) for x in fila) + "\n")
+    # con lo aportado anotado: +5, aporta 200, -5, saca 200, +3
+    escribir([(300, 300), (305, 300), (505, 500), (500, 500), (300, 300), (303, 300)])
+    assert [r for _, r, _ in A.curva_resultado(d)] == [0, 5, 5, 0, 0, 3]
+    assert [v for _, _, v in A.curva_resultado(d)] == [300, 305, 505, 500, 300, 303]
+    # filas viejas sin lo aportado: un salto de más del 10 % en una hora es un aporte o retiro
+    escribir([(300,), (310,), (510,), (505,), (305,)], con_base=False)
+    assert [r for _, r, _ in A.curva_resultado(d)] == [0, 10, 10, 5, 5]
+    # filas viejas y después nuevas: el último punto queda exacto (saldo menos lo aportado)
+    with open(os.path.join(d, K.EQUITY_FILE), "w", encoding="utf-8") as f:
+        f.write("hora,total,base\n2026-11-01 00:00,300,\n2026-11-01 01:00,290,\n2026-11-01 02:00,600,600\n")
+    assert [r for _, r, _ in A.curva_resultado(d)] == [10, 0, 0]
+    assert A.curva_resultado(tempfile.mkdtemp()) == []
+
+
 def prueba_reglas():
     prueba_breakeven()
+    prueba_curva_resultado()
     prueba_tope_aportado()
     prueba_stop_10min()
     import engine as E

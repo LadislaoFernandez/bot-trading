@@ -38,9 +38,14 @@ OBSOLETOS = ["ver_estado.bat", "verificar_backtest.bat", "actualizar_app.bat"]  
 LIMITE_PERDIDA = 0.25         # si la cuenta del bot cae 25 % desde su capital inicial, deja de abrir operaciones
 
 # ------------------------------------------------------------------ versiones de la aplicación
-VERSION = "1.33"
+VERSION = "1.34"
 REPO = "LadislaoFernandez/bot-trading"  # de acá salen las actualizaciones (GitHub Releases)
 HISTORIAL_VERSIONES = [
+    ("1.34", "17/11/2026", [
+        "El gráfico del Resumen muestra el resultado acumulado del bot (lo que ganó o perdió), sin contar la plata que "
+        "agregaste o sacaste. Pasando el mouse (o tocando, en el celular) se ve también el saldo de cada momento.",
+        "App de Android: el Resumen ahora tiene ese gráfico.",
+    ]),
     ("1.33", "17/11/2026", [
         "\"Capital del modo\" pasa a llamarse \"Dinero aportado\", con una explicación más clara: es la plata que le "
         "pusiste al bot; el bot opera con su saldo actual y reinvierte las ganancias solo. Se muestra con cuánto opera "

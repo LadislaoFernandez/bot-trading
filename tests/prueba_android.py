@@ -102,9 +102,17 @@ try:
     def tocar_grafico():
         g = [w for w in app.cuerpo.walk() if isinstance(w, M.GraficoResultado)]
         assert g, "no se dibujó el gráfico de resultado en el Resumen"
-        g[0].hover = 70
-        g[0]._dibujar()
-        assert "saldo" in g[0].info.text, g[0].info.text
+        g = g[0]
+        assert len(g.pts) < len(g.todos), "el período de 7 días tendría que mostrar solo una parte"
+        g.hover = 5
+        g._dibujar()
+        assert "saldo" in g.info.text, g.info.text
+        ultimo = g.todos[-1][0]
+        g.fin = ultimo - 10 * 86400  # arrastrado 10 días hacia atrás
+        g._ventana()
+        assert abs(g.fin_v - (ultimo - 10 * 86400)) < 1, (g.ini_v, g.fin_v)
+        app._periodo(30 * 86400)  # botón de 30 días: vuelve a seguir lo último
+        assert app._graf_span == 30 * 86400 and app._graf_fin is None
         resultado["grafico"] = True
 
     def tirar():

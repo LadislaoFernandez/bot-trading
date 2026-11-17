@@ -102,6 +102,8 @@ QLabel[rol="muted"] {{ color: {MUTED}; }}
 QLabel[rol="titulo"] {{ font-size: 12px; font-weight: 700; color: {MUTED}; }}
 QLabel[rol="h1"] {{ font-family: "{FONT}"; font-size: 24px; font-weight: 600; }}
 QLabel[rol="num"] {{ background: {ACCENT}; color: {ON_ACCENT}; border-radius: 12px; font-weight: 700; font-size: 12px; }}
+QPushButton[rol="periodo"] {{ background: {PANEL2}; color: {MUTED}; border: none; border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; }}
+QPushButton[rol="periodo"]:checked {{ background: {ACCENT_SOFT}; color: {ACCENT}; }}
 QPushButton[rol="nav"] {{ text-align: left; padding: 9px 12px; border: none; border-radius: 8px;
     font-size: 14px; color: {MUTED}; background: transparent; }}
 QPushButton[rol="nav"]:hover {{ background: {PANEL2}; color: {TEXT}; }}
@@ -547,6 +549,7 @@ class GraficoCapital(QWidget):
     def __init__(self):
         super().__init__()
         self.pts, self.hover, self.base, self.saldos = [], None, K.INITIAL_CAPITAL, None
+        self.span, self.fin, self.al_cambiar, self._arrastre = 7 * 86400, None, None, None
         self.setMinimumHeight(220)
         self.setMouseTracking(True)
 
@@ -555,11 +558,40 @@ class GraficoCapital(QWidget):
         self.update()
 
     def set_resultado(self, pts):
-        """pts: [(hora, resultado acumulado, saldo)]. Dibuja el resultado del bot (0 = sin ganar ni perder)."""
+        """pts: [(hora, resultado acumulado, saldo)]. Dibuja el resultado del bot en el período elegido (arrastrando
+        se va hacia atrás; con la rueda del mouse, zoom). 0 = sin ganar ni perder desde el inicio del período."""
+        self.todos = [tuple(p) for p in pts]
+        self._ventana()
+
+    def set_periodo(self, span):
+        self.span, self.fin = span, None
+        self._ventana()
+
+    def _ventana(self):
+        import avisos as AV
+        self.ini_v, self.fin_v, pts = AV.ventana_resultado(self.todos, self.span, self.fin)
         self.pts = [(p[0], p[1]) for p in pts]
         self.saldos = [p[2] for p in pts]
-        self.base = 0.0
+        self.base, self.hover = 0.0, None
+        if self.al_cambiar:
+            self.al_cambiar(self.pts[-1][1] if self.pts else None)
         self.update()
+
+    def mousePressEvent(self, e):
+        if self.saldos is not None and len(self.pts) >= 2:
+            self._arrastre = (e.position().x(), self.fin_v)
+
+    def mouseReleaseEvent(self, e):
+        self._arrastre = None
+
+    def wheelEvent(self, e):
+        if self.saldos is None or len(getattr(self, "todos", [])) < 2:
+            e.ignore()  # que siga deslizando la página
+            return
+        largo = self.todos[-1][0] - self.todos[0][0]
+        self.span = min(max(6 * 3600, self.span * (0.8 if e.angleDelta().y() > 0 else 1.25)), max(largo, 6 * 3600))
+        self.fin = self.fin_v if self.fin_v < self.todos[-1][0] else None
+        self._ventana()
 
     def _geo(self):
         m = dict(l=64, r=16, t=14, b=28)
@@ -568,8 +600,8 @@ class GraficoCapital(QWidget):
         lo, hi = min(vals), max(vals)
         pad = max((hi - lo) * 0.12, 0.5)
         lo, hi = lo - pad, hi + pad
-        t0, t1 = self.pts[0][0], self.pts[-1][0]
-        if t1 == t0:
+        t0, t1 = (self.ini_v, self.fin_v) if self.saldos is not None else (self.pts[0][0], self.pts[-1][0])
+        if t1 <= t0:
             t1 = t0 + 1
         X = lambda x: m["l"] + (x - t0) / (t1 - t0) * w
         Y = lambda v: m["t"] + (1 - (v - lo) / (hi - lo)) * h
@@ -611,7 +643,9 @@ class GraficoCapital(QWidget):
         p.setPen(QPen(col, 2))
         p.drawPath(path)
         p.setPen(QColor(MUTED))  # fechas
-        for x, al in [(self.pts[0][0], Qt.AlignLeft), (self.pts[-1][0], Qt.AlignRight)]:
+        bordes = [(self.ini_v, Qt.AlignLeft), (self.fin_v, Qt.AlignRight)] if self.saldos is not None else \
+            [(self.pts[0][0], Qt.AlignLeft), (self.pts[-1][0], Qt.AlignRight)]
+        for x, al in bordes:
             xx = X(x)
             rx = QRectF(xx - (0 if al == Qt.AlignLeft else 120), m["t"] + h + 6, 120, 16)
             p.drawText(rx, al | Qt.AlignVCenter, datetime.fromtimestamp(x).strftime("%d/%m %H:%M"))
@@ -638,6 +672,12 @@ class GraficoCapital(QWidget):
             return
         m, w, h, lo, hi, X, Y = self._geo()
         x = e.position().x()
+        arr = getattr(self, "_arrastre", None)
+        if arr and e.buttons() & Qt.LeftButton:  # arrastrar: ir hacia atrás o adelante en el tiempo
+            nuevo = arr[1] - (x - arr[0]) / max(w, 1) * (self.fin_v - self.ini_v)
+            self.fin = None if nuevo >= self.todos[-1][0] else nuevo
+            self._ventana()
+            return
         self.hover = min(range(len(self.pts)), key=lambda i: abs(X(self.pts[i][0]) - x))
         self.update()
 

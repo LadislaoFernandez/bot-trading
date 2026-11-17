@@ -124,3 +124,24 @@ def version_tupla(v):
 def version_nueva(version_servidor, version_app):
     """True si el servidor ya tiene una versión más nueva que la app instalada (cada versión trae su APK)."""
     return bool(version_servidor and version_app) and version_tupla(version_servidor) > version_tupla(version_app)
+
+
+PERIODOS = ((24 * 3600, "24 h"), (7 * 86400, "7 días"), (30 * 86400, "30 días"))
+PERIODO_INICIAL = 7 * 86400
+
+
+def ventana_resultado(todos, span, fin=None):
+    """Tramo del gráfico de resultado: (inicio, fin, puntos). todos: [(hora, resultado acumulado, saldo)].
+    fin=None sigue al último punto. El resultado se mide desde el inicio del tramo (arranca en 0), tomando como
+    referencia el último punto anterior al tramo. Si la historia es más corta que el período, muestra toda."""
+    if not todos:
+        return 0, 0, []
+    primero, ultimo = todos[0][0], todos[-1][0]
+    fin = ultimo if fin is None else min(ultimo, max(fin, primero + span))
+    ini = max(primero, fin - span)
+    if ultimo - primero <= span:
+        ini, fin = primero, ultimo
+    vis = [p for p in todos if ini <= p[0] <= fin]
+    antes = [p for p in todos if p[0] < ini]
+    ref = antes[-1][1] if antes else (vis[0][1] if vis else 0.0)
+    return ini, fin, [(p[0], round(p[1] - ref, 2), p[2]) for p in vis]

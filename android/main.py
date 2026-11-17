@@ -183,12 +183,13 @@ class Ruedita(Widget):
 
 
 class GraficoResultado(Widget):
-    """Resultado acumulado del bot (lo que ganó o perdió, sin contar aportes ni retiros). Tocándolo muestra cada momento.
-    pts: [(hora, resultado, saldo)]."""
-    def __init__(self, pts, **kw):
+    """Resultado del bot en el período elegido (lo que ganó o perdió, sin contar aportes ni retiros). Arrastrándolo
+    se va hacia atrás en el tiempo; tocándolo muestra cada momento. todos: [(hora, resultado acumulado, saldo)]."""
+    def __init__(self, todos, span, fin=None, al_mover=None, **kw):
         kw.setdefault("size_hint_y", None); kw.setdefault("height", dp(210))
         super().__init__(**kw)
-        self.pts, self.hover = pts, None
+        self.todos, self.span, self.fin, self.al_mover = todos, span, fin, al_mover
+        self.hover, self._toque = None, None
         self.info = Label(font_size=sp(12.5), color=GRIS, halign="center", valign="middle")
         self.f0 = Label(font_size=sp(11), color=GRIS, halign="left", valign="middle")
         self.f1 = Label(font_size=sp(11), color=GRIS, halign="right", valign="middle")
@@ -196,6 +197,11 @@ class GraficoResultado(Widget):
         for w in [self.info, self.f0, self.f1] + self.ejes:
             self.add_widget(w)
         self.bind(pos=self._dibujar, size=self._dibujar)
+        self._ventana()
+
+    def _ventana(self):
+        import avisos as AV
+        self.ini_v, self.fin_v, self.pts = AV.ventana_resultado(self.todos, self.span, self.fin)
         self._dibujar()
 
     def _geo(self):
@@ -204,8 +210,7 @@ class GraficoResultado(Widget):
         lo, hi = min(vals), max(vals)
         pad = max((hi - lo) * 0.12, 0.5)
         lo, hi = lo - pad, hi + pad
-        t0, t1 = self.pts[0][0], self.pts[-1][0]
-        t1 = t1 if t1 > t0 else t0 + 1
+        t0, t1 = self.ini_v, self.fin_v if self.fin_v > self.ini_v else self.ini_v + 1
         return (lambda x: l + (x - t0) / (t1 - t0) * (r - l)), (lambda v: ab + (v - lo) / (hi - lo) * (arr - ab)), \
             l, r, arr, ab, lo, hi
 
@@ -236,7 +241,7 @@ class GraficoResultado(Widget):
             Mesh(vertices=vert, indices=ind, mode="triangle_strip")
             Color(*col)
             Line(points=[c for p in self.pts for c in (X(p[0]), Y(p[1]))], width=dp(1.4))
-            if self.hover is not None:
+            if self.hover is not None and self.hover < len(self.pts):
                 p = self.pts[self.hover]
                 x, y = X(p[0]), Y(p[1])
                 Color(*alfa(GRIS, 0.7)); Line(points=[x, ab, x, arr], width=1, dash_length=dp(2), dash_offset=dp(3))
@@ -246,28 +251,46 @@ class GraficoResultado(Widget):
             w.texture_update()
             w.size = w.texture_size
             w.pos = (l + dp(2), Y(v) - (w.height if v == hi else 0))
-        self.f0.text = datetime.fromtimestamp(self.pts[0][0]).strftime("%d/%m")
-        self.f1.text = datetime.fromtimestamp(self.pts[-1][0]).strftime("%d/%m %H:%M")
-        if self.hover is None:
-            self.info.text, self.info.color = "Tocá el gráfico para ver cada momento", GRIS
+        self.f0.text = datetime.fromtimestamp(self.ini_v).strftime("%d/%m %H:%M")
+        self.f1.text = datetime.fromtimestamp(self.fin_v).strftime("%d/%m %H:%M")
+        if self.hover is None or self.hover >= len(self.pts):
+            self.info.text = f"En este período: {usd(final, 2, True)}  ·  arrastrá para ver más atrás"
+            self.info.color = color(final)
         else:
             ts, res, saldo = self.pts[self.hover][:3]
             self.info.text = f"{usd(res, 2, True)}  ·  saldo {usd(saldo)}  ·  {datetime.fromtimestamp(ts):%d/%m %H:%M}"
             self.info.color = color(res)
 
-    def _tocar(self, touch):
-        if len(self.pts) >= 2 and self.collide_point(*touch.pos):
-            X = self._geo()[0]
-            self.hover = min(range(len(self.pts)), key=lambda i: abs(X(self.pts[i][0]) - touch.x))
-            self._dibujar()
-
     def on_touch_down(self, touch):
-        self._tocar(touch)
+        if len(self.pts) >= 2 and self.collide_point(*touch.pos):
+            self._toque = (touch.x, self.fin_v, False)
+            self._mirar(touch.x)
         return super().on_touch_down(touch)
 
     def on_touch_move(self, touch):
-        self._tocar(touch)
+        if self._toque and len(self.pts) >= 2:
+            x0, fin0, moviendo = self._toque
+            if moviendo or abs(touch.x - x0) > dp(10):  # arrastrar: ir hacia atrás o adelante en el tiempo
+                self._toque = (x0, fin0, True)
+                X, _, l, r = self._geo()[:4]
+                nuevo = fin0 - (touch.x - x0) / max(r - l, 1) * (self.fin_v - self.ini_v)
+                self.fin = None if nuevo >= self.todos[-1][0] else nuevo
+                self.hover = None
+                self._ventana()
+            else:
+                self._mirar(touch.x)
         return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self._toque and self._toque[2] and self.al_mover:
+            self.al_mover(self.fin)
+        self._toque = None
+        return super().on_touch_up(touch)
+
+    def _mirar(self, x):
+        X = self._geo()[0]
+        self.hover = min(range(len(self.pts)), key=lambda i: abs(X(self.pts[i][0]) - x))
+        self._dibujar()
 
 
 class Refrescable(ScrollView):
@@ -1203,6 +1226,10 @@ class ControlApp(App):
         aplicar_tema(nombre)
         self._armar()
 
+    def _periodo(self, seg):
+        self._graf_span, self._graf_fin = seg, None
+        self._pintar()
+
     def _ir(self, k):
         if k == "resumen" and getattr(self, "pestana", None) != "resumen" and getattr(self, "curva", None) is None:
             self._prox_curva = 0
@@ -1291,6 +1318,9 @@ class ControlApp(App):
             return  # no rehace estas pantallas mientras escribís (se actualizan al entrar o al hacer una acción)
         viejo = self.cuerpo.children[0] if self.cuerpo.children else None
         misma = isinstance(viejo, ScrollView) and getattr(self, "_pintada", None) == self.pestana
+        if desde_sondeo and any(getattr(w, "_toque", None) for w in self.cuerpo.walk()
+                                if isinstance(w, GraficoResultado)):
+            return  # el dedo está sobre el gráfico: se actualiza en el próximo sondeo
         if desde_sondeo and misma and getattr(viejo, "_touch", None):
             return  # el dedo está deslizando la pantalla: se actualiza en el próximo sondeo
         lugar = viejo.scroll_y if misma else None
@@ -1357,8 +1387,17 @@ class ControlApp(App):
         cur = getattr(self, "curva", None)
         if cur:
             seccion(caja, "Resultado acumulado", usd(cur[-1][1], 2, True))
+            import avisos as AV
             t = Tarjeta(padding=(dp(10), dp(8)))
-            t.add_widget(GraficoResultado(cur))
+            span = getattr(self, "_graf_span", AV.PERIODO_INICIAL)
+            fila = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(6))
+            for seg, nombre in AV.PERIODOS:
+                b = Boton(nombre, lambda s=seg: self._periodo(s), col=ACENTO if seg == span else None)
+                b.height, b.font_size = dp(36), sp(13)
+                fila.add_widget(b)
+            t.add_widget(fila)
+            t.add_widget(GraficoResultado(cur, span, getattr(self, "_graf_fin", None),
+                                          al_mover=lambda f: setattr(self, "_graf_fin", f)))
             t.add_widget(Texto("Lo que ganó o perdió el bot, sin contar la plata que agregaste o sacaste.", 12, GRIS,
                                padding=(dp(4), 0)))
             caja.add_widget(t)

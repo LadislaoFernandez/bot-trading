@@ -332,6 +332,15 @@ def prueba_curva_resultado():
         f.write("hora,total,base\n2026-11-01 00:00,300,\n2026-11-01 01:00,290,\n2026-11-01 02:00,600,600\n")
     assert [r for _, r, _ in A.curva_resultado(d)] == [10, 0, 0]
     assert A.curva_resultado(tempfile.mkdtemp()) == []
+    # período del gráfico: el resultado se mide desde el inicio del tramo; arrastrar mueve el tramo hacia atrás
+    import avisos as AV
+    todos = [(h * 3600, float(h), 300.0 + h) for h in range(100)]  # +1 por hora
+    ini, fin, pts = AV.ventana_resultado(todos, 24 * 3600)
+    assert (ini, fin) == (75 * 3600, 99 * 3600) and pts[0][1] == 1.0 and pts[-1][1] == 25.0, pts[:2]
+    ini, fin, pts = AV.ventana_resultado(todos, 24 * 3600, fin=50 * 3600)
+    assert (ini, fin) == (26 * 3600, 50 * 3600) and pts[-1][1] == 25.0 and pts[-1][2] == 350.0
+    assert AV.ventana_resultado(todos, 24 * 3600, fin=0)[0] == 0  # no se va más atrás que el principio
+    assert AV.ventana_resultado(todos, 30 * 86400)[:2] == (0, 99 * 3600)  # historia más corta: toda
 
 
 def prueba_reglas():

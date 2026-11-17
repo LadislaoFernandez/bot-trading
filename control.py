@@ -280,8 +280,9 @@ class Control(QMainWindow):
         # saldo con el gráfico de su evolución
         hero = panel("acento"); hv = QVBoxLayout(hero); hv.setContentsMargins(20, 16, 20, 14); hv.setSpacing(4)
         hv.addWidget(lbl(t("Saldo del bot"), rol="titulo"))
-        self.lbl_graf = lbl(t("El gráfico muestra lo que ganó o perdió el bot (sin contar la plata que agregaste o "
-                              "sacaste). Pasá el mouse para ver el saldo de cada momento."), rol="muted", size=11, wrap=True)
+        self.lbl_graf = lbl(t("El gráfico muestra lo que ganó o perdió el bot en el período (sin contar la plata que "
+                              "agregaste o sacaste). Arrastralo para ver más atrás, usá la rueda del mouse para acercar y "
+                              "pasá el mouse para ver el saldo de cada momento."), rol="muted", size=11, wrap=True)
         fs = QHBoxLayout(); fs.setSpacing(16)
         self.lbl_saldo = lbl("—", size=32, weight=600, family=FONT); fs.addWidget(self.lbl_saldo)
         fs.addStretch()
@@ -289,7 +290,18 @@ class Control(QMainWindow):
         self.btn_reanudar = boton(t("Reanudar"), "primario", self._reanudar); self.btn_reanudar.setVisible(False)
         fs.addWidget(self.btn_reanudar, 0, Qt.AlignBottom)
         hv.addLayout(fs)
+        fp = QHBoxLayout(); fp.setSpacing(6)
+        self.lbl_periodo = lbl("", size=13, weight=600); fp.addWidget(self.lbl_periodo); fp.addStretch()
+        self.btn_periodo = {}
+        import avisos as AV
+        for seg, nombre in AV.PERIODOS:
+            b = QPushButton(t(nombre)); b.setProperty("rol", "periodo"); b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor); b.setChecked(seg == AV.PERIODO_INICIAL)
+            b.clicked.connect(lambda _=False, s=seg: self._periodo(s))
+            self.btn_periodo[seg] = b; fp.addWidget(b)
+        hv.addLayout(fp)
         self.grafico = GraficoCapital(); self.grafico.setMinimumHeight(190); hv.addWidget(self.grafico, 1)
+        self.grafico.al_cambiar = self._resultado_periodo
         hv.addWidget(self.lbl_graf)
         arriba.addWidget(hero, 1)
         # mercado
@@ -594,6 +606,21 @@ class Control(QMainWindow):
 
     def _guardar_capital(self):
         self._accion("capital", t("Dinero aportado guardado."), valor=float(self.sp_capital.value()))
+
+    def _periodo(self, seg):
+        for s, b in self.btn_periodo.items():
+            b.setChecked(s == seg)
+        if hasattr(self.grafico, "todos"):
+            self.grafico.set_periodo(seg)
+        else:
+            self.grafico.span = seg
+
+    def _resultado_periodo(self, v):
+        if v is None:
+            self.lbl_periodo.setText("")
+            return
+        self.lbl_periodo.setText(t("En el período: {v}", v=usd(v, 2, True)))
+        self.lbl_periodo.setStyleSheet(f"font-size:13px; font-weight:600; color:{color_de(v)}")
 
     def _cambiar_tema(self, tema):
         if tema == U.TEMA:

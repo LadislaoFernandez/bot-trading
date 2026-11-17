@@ -301,7 +301,7 @@ class Servicio:
     def detalle(self, que):
         import app_data as A
         if que == "curva":
-            return {"curva": A.curva_capital("."), "resultado": A.curva_resultado(".")}
+            return {"curva": A.curva_capital("."), "resultado": A.curva_resultado(".", max_puntos=18000)}
         if que == "operaciones":
             return {"operaciones": A.operaciones(".")}
         if que == "decisiones":
